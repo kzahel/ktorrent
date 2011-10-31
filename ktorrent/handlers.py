@@ -184,12 +184,15 @@ class HaveHandler(BTMessageHandler):
 
 class PortHandler(BTMessageHandler):
     def handle(self):
-        logging.info('got DHT port message: %s' % struct.unpack('>H', self.request.payload)[0])
+        port = struct.unpack('>H', self.request.payload)[0]
+        self.args = [port]
         self.finish()
 
 class NotInterestedHandler(BTMessageHandler):
     def handle(self):
         self.request.connection._remote_interested = False
+        tosuggest = self.request.connection._remote_bitmask.index(0)
+        self.send_message('SUGGEST_PIECE', struct.pack('>I', tosuggest))
         self.finish()
 
 class RequestHandler(BTMessageHandler):

@@ -6,6 +6,7 @@ import constants
 import math
 import bencode
 import pdb
+import random
 from hashlib import sha1
 from torrent import Torrent, base16_hash
 from util import MetaStorage, parse_bitmask
@@ -75,11 +76,12 @@ class Connection(object):
     @classmethod
     def get_metainfo(cls):
         for conn in cls.instances:
-            if not conn.torrent.meta and not conn._meta_requested and conn._remote_extension_handshake:
-                if 'm' in conn._remote_extension_handshake:
-                    if 'ut_metadata' in conn._remote_extension_handshake['m']:
-                        if 'metadata_size' in conn._remote_extension_handshake:
-                            conn.request_metadata()
+            if conn.torrent:
+                if not conn.torrent.meta and not conn._meta_requested and conn._remote_extension_handshake:
+                    if 'm' in conn._remote_extension_handshake:
+                        if 'ut_metadata' in conn._remote_extension_handshake['m']:
+                            if 'metadata_size' in conn._remote_extension_handshake:
+                                conn.request_metadata()
 
     @classmethod
     def make_piece_request(cls, instance=None):
@@ -138,7 +140,7 @@ class Connection(object):
                                 cur_piece = None
 
                     else:
-                        #logging.error("no piece that can make requests!")
+                        logging.error("no piece that can make requests!")
                         break
                         #conn._active = False
                         #conn.flushout_send_queue_and_say_not_interested()
@@ -371,6 +373,12 @@ class Connection(object):
             self._finish_request()
 
     def send_bitmask(self):
+        if self._bitmask_incomplete_count == 0:
+            self.send_message("HAVE_ALL")
+            return
+
+        removed = [] # randomly remove some for fun (ut seems to do this???)
+
         bytes = []
         bitmask = self.torrent.bitmask
         for byte in range(int(math.ceil(len(bitmask)/8.0))):
@@ -379,7 +387,14 @@ class Connection(object):
                 bits = []
                 i = byte * 8 + bit
                 if i < len(bitmask):
-                    bits.append(bitmask[i])
+                    have = bitmask[i]
+                    if have:
+                        if random.random() < .1:
+                            removed.append(i)
+                            bits.append(0)
+                        else:
+                            bits.append(1)
+                    bits.append(have)
                 else:
                     # pad the response
                     bits.append(0)
@@ -393,6 +408,8 @@ class Connection(object):
         payload = ''.join(bytes)
         self.send_message('BITFIELD',
                           payload)
+        for r in removed:
+            self.send_message('HAVE', struct.pack('>I',r))
 
 
     def _finish_request(self):
@@ -409,7 +426,7 @@ class Connection(object):
             if self._am_interested and not self._am_choked and self._piece_request_outbound == 0:
                 Connection.make_piece_request(self)
 
-            if self.torrent and self.torrent.meta and not self._sent_bitmask:
-                self.send_bitmask()
+            #if self.torrent and self.torrent.meta and not self._sent_bitmask:
+            #    self.send_bitmask()
 
             self.get_more_messages()
