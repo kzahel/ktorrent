@@ -96,7 +96,7 @@ class Connection(object):
             iter = [instance]
 
         for conn in iter:
-            if not conn.torrent.meta:
+            if not conn.torrent or not conn.torrent.meta:
                 break
             
             if conn.torrent._bitmask_incomplete_count == 0:
@@ -297,7 +297,7 @@ class Connection(object):
         self.torrent.cleanup_old_requests(self, -1)
         self._active = False
         Connection.instances.remove(self)
-        logging.error('closed peer connection %s' % [self.address])
+        logging.error('closed peer connection %s' % [self.address, self.torrent.hash[:6] + '..' if self.torrent else None])
 
     def get_more_messages(self):
         if not self.stream.closed():
@@ -373,7 +373,7 @@ class Connection(object):
             self._finish_request()
 
     def send_bitmask(self):
-        if self._bitmask_incomplete_count == 0:
+        if self.torrent._bitmask_incomplete_count == 0:
             self.send_message("HAVE_ALL")
             return
 

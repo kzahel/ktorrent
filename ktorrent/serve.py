@@ -111,8 +111,6 @@ btserver.bind(options.port, '')
 btserver.start()
 logging.info('started btserver')
 
-from ktorrent.download import DownloadSession
-
 tornado.ioloop.PeriodicCallback( Connection.make_piece_request, 1000 * 5, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( Connection.get_metainfo, 1000 * 1, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( Connection.cleanup_old_requests, 1000 * 1, io_loop=ioloop ).start()
