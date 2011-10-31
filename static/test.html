@@ -1,0 +1,43 @@
+<h1>k</h1>
+<script src="ktorrent.js"></script>
+<script src="repl.js"></script>
+pick one!
+<ol>
+
+<li>
+<form>
+<label for="hash">torrent url</label>
+(infohash/magnet/etc make sure you're seeding it)
+<input type="text" name="hash" />
+<button id="input_hash">start download</button>
+</form>
+
+</li>
+
+
+<li>
+<form>
+<label for="files">torrent</label>
+<input type="file" name="torrent" />
+<button id="input_hash">upload torrent</button>
+</form>
+</li>
+
+
+<li>
+<form>
+<label for="files">files</label>
+(upload some files and we'll seed them)
+<input type="file" multiple="multiple" name="files" />
+<button id="input_hash">upload files</button>
+</form>
+</li>
+
+
+
+
+</ol>
+
+
+
+<p><input style="width:100%" name="input" autocomplete="off" type="text" onkeydown="keydown(this, event);" /></p><div id="output" style="border:1px solid black; margin: 1em"></div>
