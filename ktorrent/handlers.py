@@ -31,7 +31,13 @@ class BTMessageHandler(object):
             hashstr = '(' + self.request.connection.torrent.hash[:6] + '..)'
         else:
             hashstr = '--'
-        return hashstr + ' ' + self.request.type + " " + str(len(self.request.payload)) + ' ' +\
+
+        if self.request.type == 'PIECE':
+            otherinfo = str(len(self.request.payload))
+        else:
+            otherinfo = str(self.request.args)
+
+        return hashstr + ' ' + self.request.type + " " + otherinfo + ' ' +\
             " (" + self.request.remote_ip + ")"
 
     def send_message(self, type, payload=None, log=True):
@@ -61,7 +67,7 @@ class BTMessageHandler(object):
                         return
 
                     while offset < t.get_piece_len():
-                        data = t.get_piece_data(index, offset, sz)
+                        data = t.get_piece(index).get_data(offset, sz)
                         payload = ''.join((
                             struct.pack('>I',index),
                             struct.pack('>I',offset),
@@ -97,29 +103,7 @@ class BitmaskHandler(BTMessageHandler):
 
         logging.info('remo.bitmask is %s' % ''.join(map(str,self.request.connection._remote_bitmask)))
 
-        bytes = []
-
-        bitmask = self.request.connection.torrent.bitmask
-        if bitmask:
-            for byte in range(int(math.ceil(len(bitmask)/8.0))):
-
-                for bit in range(8):
-                    bits = []
-                    i = byte * 8 + bit
-                    if i < len(bitmask):
-                        bits.append(bitmask[i])
-                    else:
-                        bits.append(0)
-
-                piecesstr = ''.join( map(str,bits) )
-                val = int(piecesstr,2)
-                encoded = chr(val)
-
-                bytes.append( encoded )
-
-            payload = ''.join(bytes)
-            self.send_message('BITFIELD',
-                              payload)
+        self.request.connection.send_bitmask()
         self.finish()
 
 class UTHandler(BTMessageHandler):
@@ -173,7 +157,16 @@ class UnChokeHandler(BTMessageHandler):
 
 class HaveHandler(BTMessageHandler):
     def handle(self):
+
+        if not self.request.connection._remote_bitmask:
+            if self.request.connection.torrent and self.request.connection.torrent.bitmask:
+                self.request.connection._remote_bitmask = [0] * len(self.request.connection.torrent.bitmask)
+            else:
+                logging.error('they sent us a have but we dont have torrent meta !!')
+            # initialize an empty bitmask
+
         index = struct.unpack('>I', self.request.payload)[0]
+        self.request.args = [index]
 
         if not self.request.connection._remote_bitmask:
             self.request.connection._stored_haves.append(index)
@@ -204,10 +197,11 @@ class RequestHandler(BTMessageHandler):
         index = struct.unpack('>I', self.request.payload[0:4])[0]
         offset = struct.unpack('>I', self.request.payload[4:8])[0]
         sz = struct.unpack('>I', self.request.payload[8:12])[0]
-        logging.info('request %s %s %s' % (index, offset, sz))
+        self.request.args = [index, offset, sz]
+        #logging.info('request %s %s %s' % (index, offset, sz))
 
         if self.request.connection.torrent.bitmask[index] == 1:
-            data = self.request.connection.torrent.get_piece_data(index, offset, sz)
+            data = self.request.connection.torrent.get_piece(index).get_data(offset, sz)
             payload = ''.join((
                     struct.pack('>I',index),
                     struct.pack('>I',offset),
@@ -215,11 +209,13 @@ class RequestHandler(BTMessageHandler):
             self.send_message('PIECE', payload, log=True)
             self.finish()
         else:
+            self.send_message('REJECT_REQUEST', self.request.payload)
             self.finish()
 
 class InterestedHandler(BTMessageHandler):
     def handle(self):
         self.request.connection._remote_interested = True
+        self.send_message('UNCHOKE') # :-)
         self.finish()
         
             
@@ -233,6 +229,7 @@ class PieceHandler(BTMessageHandler):
 
         index = struct.unpack('>I', self.request.payload[0:4])[0]
         offset = struct.unpack('>I', self.request.payload[4:8])[0]
+        self.request.args = [index, offset, '...']
         data = self.request.payload[8:]
         tor_finished, piece_finished = self.request.connection.torrent.get_piece(index).handle_peer_response(self, offset, data)
         conn = self.request.connection
@@ -246,7 +243,9 @@ class PieceHandler(BTMessageHandler):
         elif piece_finished:
             # finished this piece
             #self.enqueue_message('HAVE', struct.pack('>I', index))
-            self.send_message('HAVE', struct.pack('>I', index))
+            conns = Connection.get_by_hash(self.request.connection.torrent.hash)
+            for conn in conns:
+                conn.send_message('HAVE', struct.pack('>I', index))
         if False:
             logging.info('got piece %s %s %s (q: %s, o: %s)' % (index, offset, len(data),
                                                                 self.request.connection._piece_request_queued,

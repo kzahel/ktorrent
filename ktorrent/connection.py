@@ -37,6 +37,7 @@ class Request(object):
         self.type = type
         self.len = len
         self.payload = data
+        self.args = None # parsed payload
         self.remote_ip = remote_ip
         self.connection = connection
         self.no_keep_alive = False
@@ -55,6 +56,15 @@ class Request(object):
 
 class Connection(object):
     instances = []
+
+    @classmethod
+    def get_by_hash(cls, hash):
+        # todo -- speed up by storing this ahead of time
+        toreturn = []
+        for conn in cls.instances:
+            if conn.torrent and conn.torrent.hash == hash:
+                toreturn.append(conn)
+        return toreturn
 
     @classmethod
     def cleanup_old_requests(cls):
@@ -128,7 +138,7 @@ class Connection(object):
                                 cur_piece = None
 
                     else:
-                        logging.error("no piece that can make requests!")
+                        #logging.error("no piece that can make requests!")
                         break
                         #conn._active = False
                         #conn.flushout_send_queue_and_say_not_interested()
@@ -212,11 +222,13 @@ class Connection(object):
         elif type == 'REQUEST':
             #self._piece_request_queued -= 1
             self._piece_request_outbound += 1
+        elif type == 'BITFIELD':
+            self._sent_bitmask = True
 
         if payload == None:
             payload = ''
         if log:
-            logging.info('sending message of %s with len %s (q: %s, o: %s)' % (type, len(payload),self._piece_request_queued, self._piece_request_outbound))
+            logging.info('Sending %s with len %s (o: %s)' % (type, len(payload), self._piece_request_outbound))
 
 
         towrite = ''.join( (
@@ -251,7 +263,7 @@ class Connection(object):
         self._meta_requested = False
         self._meta_pieces = {}
         self.torrent = None
-
+        self._sent_bitmask = False
         self._piece_request_queued = 0
         self._piece_request_outbound = 0
 
@@ -283,7 +295,7 @@ class Connection(object):
         self.torrent.cleanup_old_requests(self, -1)
         self._active = False
         Connection.instances.remove(self)
-        logging.error('closed peer connection')
+        logging.error('closed peer connection %s' % [self.address])
 
     def get_more_messages(self):
         if not self.stream.closed():
@@ -305,6 +317,8 @@ class Connection(object):
         self.torrent = Torrent.instantiate( base16_hash(self.handshake['infohash']) )
         logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
         self.send_handshake()
+        if self.torrent and self.torrent.meta:
+            self.send_bitmask()
         self.get_more_messages()
 
     def _any_new_data(self):
@@ -356,6 +370,31 @@ class Connection(object):
         if not self.stream.writing():
             self._finish_request()
 
+    def send_bitmask(self):
+        bytes = []
+        bitmask = self.torrent.bitmask
+        for byte in range(int(math.ceil(len(bitmask)/8.0))):
+
+            for bit in range(8):
+                bits = []
+                i = byte * 8 + bit
+                if i < len(bitmask):
+                    bits.append(bitmask[i])
+                else:
+                    # pad the response
+                    bits.append(0)
+
+            piecesstr = ''.join( map(str,bits) )
+            val = int(piecesstr,2)
+            encoded = chr(val)
+
+            bytes.append( encoded )
+
+        payload = ''.join(bytes)
+        self.send_message('BITFIELD',
+                          payload)
+
+
     def _finish_request(self):
         req = self._request
         self._request = None
@@ -369,5 +408,8 @@ class Connection(object):
         else:
             if self._am_interested and not self._am_choked and self._piece_request_outbound == 0:
                 Connection.make_piece_request(self)
+
+            if self.torrent and self.torrent.meta and not self._sent_bitmask:
+                self.send_bitmask()
 
             self.get_more_messages()
