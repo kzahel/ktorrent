@@ -1,6 +1,6 @@
 torrent client using tornado's ioloop.
 fast and efficient for downloading files.
 
-only downloads from 100% seeders at the moment
+now downloads from non-100% complete peers
 
 has support for ut_metadata extension

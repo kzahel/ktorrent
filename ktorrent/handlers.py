@@ -242,8 +242,9 @@ class PieceHandler(BTMessageHandler):
 
         if tor_finished:
             logging.info('torrent finished! :-)')
-            # don't send the last have piece just to force the connection to stay open, for fun
-        elif piece_finished:
+            # don't send the last have piece just to force the connection to stay open, for fun ?
+
+        if piece_finished:
             # finished this piece
             #self.enqueue_message('HAVE', struct.pack('>I', index))
             conns = Connection.get_by_hash(self.request.connection.torrent.hash)

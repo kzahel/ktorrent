@@ -103,7 +103,10 @@ class Connection(object):
                 logging.debug('this torrent is finished. not making requests')
                 break
 
-            if conn.torrent.meta and conn._remote_bitmask and conn._remote_bitmask_incomplete == 0:
+            #if conn._remote_bitmask_incomplete == 0:
+            #    break
+
+            if conn.torrent.meta and conn._remote_bitmask:
 
                 cur_piece = None
 
@@ -382,9 +385,8 @@ class Connection(object):
         bytes = []
         bitmask = self.torrent.bitmask
         for byte in range(int(math.ceil(len(bitmask)/8.0))):
-
+            bits = []
             for bit in range(8):
-                bits = []
                 i = byte * 8 + bit
                 if i < len(bitmask):
                     have = bitmask[i]
@@ -394,13 +396,15 @@ class Connection(object):
                             bits.append(0)
                         else:
                             bits.append(1)
-                    bits.append(have)
+                    else:
+                        bits.append(have)
                 else:
                     # pad the response
                     bits.append(0)
 
             piecesstr = ''.join( map(str,bits) )
             val = int(piecesstr,2)
+
             encoded = chr(val)
 
             bytes.append( encoded )

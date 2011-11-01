@@ -274,11 +274,12 @@ class Torrent(object):
         try:
             while start < len(self.bitmask):
                 i = self.bitmask.index(0, start)
-                piece = self.get_piece( i )
-                if piece.make_request(conn, peek=True):
-                    return piece
-                else:
-                    start = i+1
+                if conn._remote_bitmask[i] == 1:
+                    piece = self.get_piece( i )
+                    if piece.make_request(conn, peek=True):
+                        return piece
+                
+                start = i+1
         except:
             pass
 
