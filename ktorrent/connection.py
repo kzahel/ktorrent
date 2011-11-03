@@ -12,6 +12,7 @@ from torrent import Torrent, base16_hash
 from util import MetaStorage, parse_bitmask
 from tornado import stack_context
 from tornado.options import options
+from tornado.iostream import IOStream
 
 def parse_handshake(data):
     protocol_str_len = ord(data[0])
@@ -55,8 +56,26 @@ class Request(object):
         else:
             return self._finish_time - self._start_time
 
+import functools
+
 class Connection(object):
     instances = []
+
+    @classmethod
+    def initiate(cls, host, port, infohash):
+        af = socket.AF_INET
+        addrinfo = socket.getaddrinfo(host, port, af, socket.SOCK_STREAM,
+                                          0, 0)
+        af, socktype, proto, canonname, sockaddr = addrinfo[0]
+        stream = IOStream(socket.socket(af, socktype, proto),
+                               io_loop=cls.io_loop)
+        stream.connect(sockaddr, functools.partial(cls.initiate_connected, stream, sockaddr, infohash))
+
+    @classmethod
+    def initiate_connected(cls, stream, sockaddr, infohash):
+        conn = cls(stream, sockaddr, cls.application, self_initiated=True)
+        conn.send_handshake(infohash=infohash)
+        conn._self_initiated = True
 
     @classmethod
     def get_by_hash(cls, hash):
@@ -252,7 +271,7 @@ class Connection(object):
             #logging.warn('SENDING PIECE REQ! %s' % [data])
             self.send_message(message, payload)
 
-    def __init__(self, stream, address, request_callback):
+    def __init__(self, stream, address, request_callback, self_initiated=False):
         Connection.instances.append( self )
         self._active = True
 
@@ -271,14 +290,14 @@ class Connection(object):
         self._sent_bitmask = False
         self._piece_request_queued = 0
         self._piece_request_outbound = 0
-
+        self._self_initiated = self_initiated
         self._remote_interested = False
         self._remote_choked = True
         self._remote_bitmask = None
         self._remote_bitmask_incomplete = None
         self._am_choked = True
         self._am_interested = False
-
+        self._sent_handshake = False
         self._remote_extension_handshake = None
 
         self._my_extension_handshake = None
@@ -307,11 +326,14 @@ class Connection(object):
             #logging.info('%s getting more messages' % self)
             self.stream.read_bytes(5, self.new_message)
 
-    def send_handshake(self):
+    def send_handshake(self, infohash=None):
+        self._sent_handshake = True
+        if infohash is None:
+            infohash = self.handshake['infohash']
         towrite = ''.join((chr(len(constants.protocol_name)),
                            constants.protocol_name,
                            ''.join(constants.handshake_flags),
-                           self.handshake['infohash'],
+                           infohash,
                            self._my_peerid
                            ))
         self.stream.write(towrite)
@@ -321,7 +343,8 @@ class Connection(object):
         self.handshake = parse_handshake(data)
         self.torrent = Torrent.instantiate( base16_hash(self.handshake['infohash']) )
         logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
-        self.send_handshake()
+        if not self._sent_handshake:
+            self.send_handshake()
         if self.torrent and self.torrent.meta:
             self.send_bitmask()
         self.get_more_messages()
@@ -391,7 +414,7 @@ class Connection(object):
                 if i < len(bitmask):
                     have = bitmask[i]
                     if have:
-                        if random.random() < .1:
+                        if random.random() < .01:
                             removed.append(i)
                             bits.append(0)
                         else:

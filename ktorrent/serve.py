@@ -99,6 +99,8 @@ class BTProtocolServer(tornado.netutil.TCPServer):
         Connection(stream, address, self.request_callback)
 
 ioloop = tornado.ioloop.IOLoop()
+Connection.io_loop = ioloop
+Connection.application = application
 
 frontend_application = tornado.web.Application(frontend_routes, **settings)
 frontend_server = tornado.httpserver.HTTPServer(frontend_application, io_loop=ioloop)
@@ -114,4 +116,6 @@ logging.info('started btserver')
 tornado.ioloop.PeriodicCallback( Connection.make_piece_request, 1000 * 5, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( Connection.get_metainfo, 1000 * 1, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( Connection.cleanup_old_requests, 1000 * 1, io_loop=ioloop ).start()
+#pipelinehash='\xb8\xaar\x12\x0e\xaa\xab\x04\x10=\x17\xd4\x99\xc4\x82\n\x19\xf3!g'
+#Connection.initiate('ec2-107-22-42-93.compute-1.amazonaws.com',43858,pipelinehash)
 ioloop.start()
