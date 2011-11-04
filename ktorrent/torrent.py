@@ -248,8 +248,7 @@ class Piece(object):
                 self.torrent.handle_bad_piece(self)
         return False, False
 
-def base16_hash(raw):
-    return ''.join([s[2:] for s in map(hex,struct.unpack('>IIIII', raw))]).upper()
+from util import base16_hash
 
 class Torrent(object):
     instances = {}

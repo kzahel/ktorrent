@@ -39,6 +39,24 @@ def parse_bitmask(torrent, data):
 
     return pieces
 
+def b16_to_bytes(b16str):
+    if len(b16str) % 2 != 0:
+        b16str = '0' + b16str
+
+    vals = []
+    for i in range(len(b16str)/2):
+        val = chr( (int(b16str[i*2],16) << 4) + int(b16str[i*2+1],16) )
+        vals.append(val)
+    return ''.join(vals)
+
+import struct
+
+def base16_hash(raw):
+    return ''.join([s[2:] for s in map(hex,struct.unpack('>IIIII', raw))]).upper()
+
+testhash = '875CA32E6B730F628D2EB7E312D289DC8E54768C'
+assert( base16_hash( b16_to_bytes( testhash ) )  == testhash )
+
 class MetaStorage(object):
     ''' stores filenames for infohashes '''
 

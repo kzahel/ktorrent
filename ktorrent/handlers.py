@@ -218,6 +218,7 @@ class HaveHandler(BTMessageHandler):
 class PortHandler(BTMessageHandler):
     def handle(self):
         port = struct.unpack('>H', self.request.payload)[0]
+        logging.info('extension message got port %s' % port)
         self.args = [port]
         self.finish()
 
