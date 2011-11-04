@@ -13,6 +13,7 @@ from util import MetaStorage, parse_bitmask
 from tornado import stack_context
 from tornado.options import options
 from tornado.iostream import IOStream
+from util import b16_to_bytes
 
 def parse_handshake(data):
     protocol_str_len = ord(data[0])
@@ -333,6 +334,8 @@ class Connection(object):
         self._sent_handshake = True
         if infohash is None:
             infohash = self.handshake['infohash']
+        else:
+            infohash = b16_to_bytes(infohash)
         towrite = ''.join((chr(len(constants.protocol_name)),
                            constants.protocol_name,
                            ''.join(constants.handshake_flags),
