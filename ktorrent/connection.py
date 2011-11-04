@@ -28,11 +28,12 @@ def parse_handshake(data):
     
     if len(data) != 1 + protocol_str_len + 8 + 20 + 20:
         logging.error('error in handshake -- data wrong length')
-
-    return dict( protocol = protocol_str,
-                 reserved = reserved,
-                 infohash = infohash,
-                 peerid = peerid )
+        return False
+    else:
+        return dict( protocol = protocol_str,
+                     reserved = reserved,
+                     infohash = infohash,
+                     peerid = peerid )
 
 class Request(object):
     def __init__(self, type, len, data, connection, remote_ip):
@@ -231,7 +232,8 @@ class Connection(object):
             self._remote_bitmask[index] = 1
 
         self._stored_haves = None
-        self._remote_bitmask_incomplete = self._remote_bitmask.count(0)
+        if self._remote_bitmask:
+            self._remote_bitmask_incomplete = self._remote_bitmask.count(0)
 
     def send_message(self, type, payload=None, log=True):
 
@@ -316,7 +318,8 @@ class Connection(object):
 
     def on_connection_close(self):
         # remove piece timeouts...
-        self.torrent.cleanup_old_requests(self, -1)
+        if self.torrent:
+            self.torrent.cleanup_old_requests(self, -1)
         self._active = False
         Connection.instances.remove(self)
         logging.error('closed peer connection %s' % [self.address, self.torrent.hash[:6] + '..' if self.torrent else None])
@@ -341,13 +344,17 @@ class Connection(object):
     def got_handshake(self, data):
         logging.info('got handshake %s' % [data])
         self.handshake = parse_handshake(data)
-        self.torrent = Torrent.instantiate( base16_hash(self.handshake['infohash']) )
-        logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
-        if not self._sent_handshake:
-            self.send_handshake()
-        if self.torrent and self.torrent.meta:
-            self.send_bitmask()
-        self.get_more_messages()
+        if self.handshake:
+            self.torrent = Torrent.instantiate( base16_hash(self.handshake['infohash']) )
+            logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
+            if not self._sent_handshake:
+                self.send_handshake()
+            if self.torrent and self.torrent.meta:
+                self.send_bitmask()
+            self.get_more_messages()
+        else:
+            logging.info('invalid/unrecognized handshake')
+            self.stream.close()
 
     def _any_new_data(self):
         #logging.info('new data to buffer %s' % len(self.stream._read_buffer))
