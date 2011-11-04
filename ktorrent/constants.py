@@ -53,3 +53,9 @@ FLAGS[5] = chr( UTORRENT )
 FLAGS[7] = chr( LAST_BYTE )
 handshake_flags = FLAGS
 #handshake_flags = ['\0'] * 8
+
+tor_meta_codes = { 0: 'request',
+                   1: 'data',
+                   2: 'reject' }
+
+tor_meta_codes_r = dict( (v,k) for k,v in tor_meta_codes.iteritems() )

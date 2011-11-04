@@ -106,11 +106,14 @@ class BitmaskHandler(BTMessageHandler):
         self.request.connection.send_bitmask()
         self.finish()
 
+from constants import tor_meta_codes, tor_meta_codes_r
+
 class UTHandler(BTMessageHandler):
     def handle(self):
         ext_msg_type = ord(self.request.payload[0])
+        HANDSHAKE_CODE = 0
 
-        if ext_msg_type == 0:
+        if ext_msg_type == HANDSHAKE_CODE:
             info = bencode.bdecode(self.request.payload[1:])
             logging.info('got extension data %s' % info)
             # handshake
@@ -118,28 +121,58 @@ class UTHandler(BTMessageHandler):
             self.request.connection._remote_extension_handshake = info
             self.request.connection._remote_extension_handshake_r = dict( (v,k) for k,v in info['m'].items() )
             resp = {'v': 'ktorrent 0.01',
-                    'm': {'ut_metadata': 1},
+                    'm': {},
                     'p': options.port}
-            if self.request.connection.torrent.meta:
+            if self.request.connection.torrent and self.request.connection.torrent.meta:
                 resp['metadata_size'] = len(self.request.connection.torrent.meta_info)
+
+            if 'ut_metadata' in self.request.connection._remote_extension_handshake['m']:
+                code = self.request.connection._remote_extension_handshake['m']['ut_metadata']
+                resp['m']['ut_metadata'] = code
+
             self.request.connection._my_extension_handshake = resp
             logging.info('sending ext msg %s' % resp)
             # send handshake message
-            self.send_message('UTORRENT_MSG', chr(0) + bencode.bencode(resp), log=False)
+
+            self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(resp), log=False)
         elif self.request.connection._remote_extension_handshake and ext_msg_type in self.request.connection._remote_extension_handshake_r:
-            self.request.connection._remote_extension_handshake
-            i = self.request.payload.find('total_size')
-            if i != -1:
-                j = self.request.payload.find('ee',i)
-                if j != -1:
-                    data = self.request.payload[1:j+2]
-                    meta = bencode.bdecode(data)
-                    rest = self.request.payload[j+2:]
-                    self.request.connection.insert_meta_piece(meta['piece'],rest)
+
+
+            ext_msg_str = self.request.connection._remote_extension_handshake_r[ext_msg_type]
+            if ext_msg_str == 'ut_metadata':
+
+                i = self.request.payload.find('total_size') # this payload is not bencoded (the payload includes the piece outside of the bencoded dictionary, so we have to search (unfortunate) ...
+                if i != -1:
+                    # this is a piece request response (if an exception occurs here, then perhaps it is another type of message. should verify the msg_type
+                    j = self.request.payload.find('ee',i)
+                    if j != -1:
+                        data = self.request.payload[1:j+2]
+                        meta = bencode.bdecode(data)
+                        rest = self.request.payload[j+2:]
+                        self.request.connection.insert_meta_piece(meta['piece'],rest)
+                else:
+                    info = bencode.bdecode( self.request.payload[1:] )
+                    tor_meta_type = tor_meta_codes[ info['msg_type'] ]
+
+                    if tor_meta_type == 'request':
+
+                        if self.request.connection.torrent and self.request.connection.torrent.meta:
+                            logging.info('have torrent file... will service the metadata chunk request!')
+                            payload = self.request.connection.torrent.get_metadata_piece_payload(info['piece'])
+                            self.send_message('UTORRENT_MSG', chr(ext_msg_type) + payload)
+                        else:
+                            logging.error('dont have torrent matadata cant serve it!')
+                            # todo: send deny message                            
+                            self.send_message('UTORRENT_MSG', chr(ext_msg_type) + deny_payload)
+            else:
+                logging.error('unhandled metadata extension %s' % ext_msg_str)
+                if options.asserts:
+                    pdb.set_trace()
 
         else:
-            logging.error('do not recognize extension message type')
-            pdb.set_trace()
+            logging.error('do not recognize extension message type %s' % ext_msg_type)
+            if options.asserts:
+                pdb.set_trace()
 
         self.finish()
 

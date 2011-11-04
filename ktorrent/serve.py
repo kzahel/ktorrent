@@ -8,6 +8,7 @@ from tornado.options import define, options
 from torrent import Torrent
 
 define('debug',default=True, type=bool)
+define('asserts',default=True, type=bool)
 define('verbose',default=1, type=int)
 define('host',default='10.10.90.24', type=str)
 define('datapath',default='/home/kyle/virtualbox-shared/ktorrent', type=str)

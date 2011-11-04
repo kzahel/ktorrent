@@ -10,7 +10,7 @@ import struct
 import constants
 import time
 from util import MetaStorage
-
+from constants import tor_meta_codes, tor_meta_codes_r
 def intersect(i1, i2):
     if i1[1] < i2[0] or i2[1] < i1[0]:
         return None
@@ -40,10 +40,16 @@ def intersect_broken(i1, i2):
         return intersect(i2, i1)
 
 def ensure_exist(path):
-    if not os.path.isfile(path):
+    parentdir = os.path.sep.join( path.split(os.path.sep)[:-1] )
+    if not os.path.exists(parentdir):
+        os.makedirs(parentdir)
+
+    if not os.path.exists(path):
         fo = open(path, 'w')
         fo.write('')
         fo.close()
+
+
 
 
 class File(object):
@@ -351,6 +357,14 @@ class Torrent(object):
     def is_multifile(self):
         return 'files' in self.meta['info']
 
+    def get_metadata_piece_payload(self, piece):
+        piecedata = self.meta_info[Piece.std_size * piece : Piece.std_size * (piece + 1)]
+        toreturn = ''.join( ( bencode.bencode( { 'total_size': len(self.meta_info),
+                                                 'piece': piece,
+                                                 'msg_type': tor_meta_codes_r['data'] } ),
+                          piecedata ) )
+        return toreturn
+
     def update_meta(self, meta):
         logging.info('update meta!')
         self.meta = meta
@@ -375,6 +389,7 @@ class Torrent(object):
             meta = bencode.bdecode( open( os.path.join(options.datapath, filename) ).read() )
             self.update_meta( meta )
         else:
+            logging.warn('instantiated torrent that has no torrent registered in meta storage')
             self.meta = None
             self.meta_info = None
             self.bitmask = None
