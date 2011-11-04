@@ -137,8 +137,8 @@ class UTHandler(BTMessageHandler):
             self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(resp), log=False)
         elif self.request.connection._remote_extension_handshake and ext_msg_type in self.request.connection._remote_extension_handshake_r:
 
-
             ext_msg_str = self.request.connection._remote_extension_handshake_r[ext_msg_type]
+            logging.info('handling %s message' % ext_msg_str)
             if ext_msg_str == 'ut_metadata':
 
                 i = self.request.payload.find('total_size') # this payload is not bencoded (the payload includes the piece outside of the bencoded dictionary, so we have to search (unfortunate) ...
@@ -162,7 +162,10 @@ class UTHandler(BTMessageHandler):
                             self.send_message('UTORRENT_MSG', chr(ext_msg_type) + payload)
                         else:
                             logging.error('dont have torrent matadata cant serve it!')
-                            # todo: send deny message                            
+                            # todo: send deny message
+                            deny_payload = bencode.bencode( { 'msg_type': tor_meta_codes_r['reject'] } )
+
+
                             self.send_message('UTORRENT_MSG', chr(ext_msg_type) + deny_payload)
             else:
                 logging.error('unhandled metadata extension %s' % ext_msg_str)

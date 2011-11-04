@@ -11,33 +11,13 @@ import constants
 import time
 from util import MetaStorage
 from constants import tor_meta_codes, tor_meta_codes_r
+
 def intersect(i1, i2):
     if i1[1] < i2[0] or i2[1] < i1[0]:
         return None
     else:
         return max(i1[0],i2[0]), \
             min(i1[1],i2[1])
-
-def intersect_broken(i1, i2):
-    b1, e1 = i1
-    b2, e2 = i2
-
-    if b1 <= e2:
-        #    11...
-        #          2...
-        if e1 >= b2:
-            # 1111111...
-            #    222222...
-            if e1 <= e2:
-                # 1111111
-                #   222222222
-                return (b2, e1)
-            else:
-                # 111111111
-                #   2222
-                return (b2, e2)
-    else:
-        return intersect(i2, i1)
 
 def ensure_exist(path):
     parentdir = os.path.sep.join( path.split(os.path.sep)[:-1] )
@@ -48,9 +28,6 @@ def ensure_exist(path):
         fo = open(path, 'w')
         fo.write('')
         fo.close()
-
-
-
 
 class File(object):
     def __init__(self, torrent, num):
@@ -248,10 +225,10 @@ class Piece(object):
                 self.torrent.handle_bad_piece(self)
         return False, False
 
-from util import base16_hash
 
 class Torrent(object):
     instances = {}
+    Connection = None
 
     def cleanup_old_requests(self, conn, t=None):
         if t is None: t = time.time()
@@ -378,6 +355,7 @@ class Torrent(object):
             self._file_byte_accum = [0]
         self.bitmask = self.create_bitmask()
         logging.info('self.bitmask is %s' % ''.join(map(str,self.bitmask)))
+        Torrent.Connection.notify_torrent_has_bitmask(self)
 
     def __init__(self, infohash):
         self.hash = infohash

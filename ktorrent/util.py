@@ -50,6 +50,9 @@ def b16_to_bytes(b16str):
     return ''.join(vals)
 
 import struct
+import binascii
+#binascii.hexlify
+#binascii.unhexlify
 
 def base16_hash(raw):
     return ''.join([s[2:] for s in map(hex,struct.unpack('>IIIII', raw))]).upper()

@@ -8,12 +8,14 @@ import bencode
 import pdb
 import random
 from hashlib import sha1
-from torrent import Torrent, base16_hash
+import binascii
+from torrent import Torrent
 from util import MetaStorage, parse_bitmask
 from tornado import stack_context
 from tornado.options import options
 from tornado.iostream import IOStream
-from util import b16_to_bytes
+import binascii
+
 
 def parse_handshake(data):
     protocol_str_len = ord(data[0])
@@ -78,6 +80,13 @@ class Connection(object):
         conn = cls(stream, sockaddr, cls.application, self_initiated=True)
         conn.send_handshake(infohash=infohash)
         conn._self_initiated = True
+
+    @classmethod
+    def notify_torrent_has_bitmask(cls, torrent):
+        for conn in cls.instances:
+            if conn.torrent == torrent:
+                if not conn._sent_bitmask:
+                    conn.send_bitmask()
 
     @classmethod
     def get_by_hash(cls, hash):
@@ -335,7 +344,7 @@ class Connection(object):
         if infohash is None:
             infohash = self.handshake['infohash']
         else:
-            infohash = b16_to_bytes(infohash)
+            infohash = binascii.unhexlify(infohash)
         towrite = ''.join((chr(len(constants.protocol_name)),
                            constants.protocol_name,
                            ''.join(constants.handshake_flags),
@@ -348,7 +357,7 @@ class Connection(object):
         logging.info('got handshake %s' % [data])
         self.handshake = parse_handshake(data)
         if self.handshake:
-            self.torrent = Torrent.instantiate( base16_hash(self.handshake['infohash']) )
+            self.torrent = Torrent.instantiate( binascii.hexlify(self.handshake['infohash']) )
             logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
             if not self._sent_handshake:
                 self.send_handshake()
@@ -409,6 +418,8 @@ class Connection(object):
             self._finish_request()
 
     def send_bitmask(self):
+        if self._sent_bitmask:
+            return
         if self.torrent._bitmask_incomplete_count == 0:
             self.send_message("HAVE_ALL")
             return
@@ -467,3 +478,5 @@ class Connection(object):
             #    self.send_bitmask()
 
             self.get_more_messages()
+
+Torrent.Connection = Connection
