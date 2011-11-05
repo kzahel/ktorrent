@@ -61,6 +61,7 @@ class Request(object):
             return self._finish_time - self._start_time
 
 import functools
+from constants import HANDSHAKE_CODE
 
 class Connection(object):
     instances = []
@@ -78,8 +79,23 @@ class Connection(object):
     @classmethod
     def initiate_connected(cls, stream, sockaddr, infohash):
         conn = cls(stream, sockaddr, cls.application, self_initiated=True)
+        conn.infohash = binascii.unhexlify( infohash )
+        conn.torrent = Torrent.instantiate( infohash )
         conn.send_handshake(infohash=infohash)
+        conn.send_extension_handshake()
+        if conn.torrent.meta:
+            conn.send_bitmask()
         conn._self_initiated = True
+
+    def send_extension_handshake(self):
+        self._sent_extension_handshake = True
+        data = {'v': 'ktorrent 0.01',
+                'm': {'ut_metadata': 1},
+                'p': options.port}
+        if self.torrent and self.torrent.meta:
+            data['metadata_size'] = len(self.torrent.meta_info)
+        logging.info('sending ext message %s' % data)
+        self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(data))
 
     @classmethod
     def notify_torrent_has_bitmask(cls, torrent):
@@ -298,6 +314,7 @@ class Connection(object):
 
         self._meta_requested = False
         self._meta_pieces = {}
+        self._sent_extension_handshake = False
         self.torrent = None
         self._sent_bitmask = False
         self._piece_request_queued = 0
@@ -342,9 +359,10 @@ class Connection(object):
     def send_handshake(self, infohash=None):
         self._sent_handshake = True
         if infohash is None:
-            infohash = self.handshake['infohash']
+            infohash = self.infohash
         else:
             infohash = binascii.unhexlify(infohash)
+        logging.info('sending handshake with infohash %s' % binascii.hexlify(infohash))
         towrite = ''.join((chr(len(constants.protocol_name)),
                            constants.protocol_name,
                            ''.join(constants.handshake_flags),
@@ -356,14 +374,18 @@ class Connection(object):
     def got_handshake(self, data):
         logging.info('got handshake %s' % [data])
         self.handshake = parse_handshake(data)
+        self.infohash = self.handshake['infohash']
         if self.handshake:
-            self.torrent = Torrent.instantiate( binascii.hexlify(self.handshake['infohash']) )
-            logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
-            if not self._sent_handshake:
-                self.send_handshake()
-            if self.torrent and self.torrent.meta:
-                self.send_bitmask()
-            self.get_more_messages()
+            if not self.torrent:
+                self.torrent = Torrent.instantiate( binascii.hexlify(self.handshake['infohash']) )
+                logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
+                if not self._sent_handshake:
+                    self.send_handshake()
+                if self.torrent and self.torrent.meta:
+                    self.send_bitmask()
+                self.get_more_messages()
+            else:
+                self.get_more_messages()
         else:
             logging.info('invalid/unrecognized handshake')
             self.stream.close()
@@ -421,6 +443,7 @@ class Connection(object):
         if self._sent_bitmask:
             return
         if self.torrent._bitmask_incomplete_count == 0:
+            self._sent_bitmask = True
             self.send_message("HAVE_ALL")
             return
 

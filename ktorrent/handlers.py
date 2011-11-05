@@ -106,12 +106,12 @@ class BitmaskHandler(BTMessageHandler):
         self.request.connection.send_bitmask()
         self.finish()
 
-from constants import tor_meta_codes, tor_meta_codes_r
+from constants import tor_meta_codes, tor_meta_codes_r, HANDSHAKE_CODE
 
 class UTHandler(BTMessageHandler):
     def handle(self):
         ext_msg_type = ord(self.request.payload[0])
-        HANDSHAKE_CODE = 0
+        
 
         if ext_msg_type == HANDSHAKE_CODE:
             info = bencode.bdecode(self.request.payload[1:])
@@ -120,21 +120,24 @@ class UTHandler(BTMessageHandler):
 
             self.request.connection._remote_extension_handshake = info
             self.request.connection._remote_extension_handshake_r = dict( (v,k) for k,v in info['m'].items() )
-            resp = {'v': 'ktorrent 0.01',
-                    'm': {},
-                    'p': options.port}
-            if self.request.connection.torrent and self.request.connection.torrent.meta:
-                resp['metadata_size'] = len(self.request.connection.torrent.meta_info)
 
-            if 'ut_metadata' in self.request.connection._remote_extension_handshake['m']:
-                code = self.request.connection._remote_extension_handshake['m']['ut_metadata']
-                resp['m']['ut_metadata'] = code
+            if not self.request.connection._sent_extension_handshake:
 
-            self.request.connection._my_extension_handshake = resp
-            logging.info('sending ext msg %s' % resp)
-            # send handshake message
+                resp = {'v': 'ktorrent 0.01',
+                        'm': {},
+                        'p': options.port}
+                if self.request.connection.torrent and self.request.connection.torrent.meta:
+                    resp['metadata_size'] = len(self.request.connection.torrent.meta_info)
 
-            self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(resp), log=False)
+                if 'ut_metadata' in self.request.connection._remote_extension_handshake['m']:
+                    code = self.request.connection._remote_extension_handshake['m']['ut_metadata']
+                    resp['m']['ut_metadata'] = code
+
+                self.request.connection._my_extension_handshake = resp
+                logging.info('sending ext msg %s' % resp)
+                # send handshake message
+
+                self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(resp), log=False)
         elif self.request.connection._remote_extension_handshake and ext_msg_type in self.request.connection._remote_extension_handshake_r:
 
             ext_msg_str = self.request.connection._remote_extension_handshake_r[ext_msg_type]
@@ -189,6 +192,14 @@ class UnChokeHandler(BTMessageHandler):
     def handle(self):
         logging.info('got unchoke message')
         self.request.connection._am_choked = False
+        self.finish()
+
+class HaveAllHandler(BTMessageHandler):
+    def handle(self):
+        if self.request.connection.torrent.meta:
+            self.request.connection._remote_bitmask[index] = [1] * len(self.request.connection.torrent.bitmask)
+        else:
+            logging.warn('dont know how to handle have all because we dont have torrent meta')
         self.finish()
 
 class HaveHandler(BTMessageHandler):

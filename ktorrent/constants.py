@@ -26,7 +26,7 @@ MESSAGES = [
 message_dict = dict( (n,v) for n,v in enumerate(MESSAGES) )
 message_dict.update( dict( (v,chr(k)) for k,v in message_dict.iteritems() ) )
 
-
+HANDSHAKE_CODE = 0
 UTORRENT_MSG_INFO = chr(0)
 # in reality this could be variable
 UTORRENT_MSG_PEX = chr(1)

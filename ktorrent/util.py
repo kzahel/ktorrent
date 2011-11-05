@@ -59,6 +59,10 @@ class MetaStorage(object):
             fo.close()
 
     @classmethod
+    def keys(cls):
+        return cls.data.keys()
+
+    @classmethod
     def get(cls, infohash):
         if infohash in cls.data:
             filename = cls.data[infohash]

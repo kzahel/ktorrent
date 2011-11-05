@@ -323,6 +323,7 @@ class Torrent(object):
 
     @classmethod
     def instantiate(cls, infohash):
+        logging.info('instantiate torrent with hash %s' % infohash)
         if infohash in cls.instances:
             instance = cls.instances[infohash]
         else:

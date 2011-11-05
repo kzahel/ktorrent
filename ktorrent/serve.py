@@ -66,12 +66,14 @@ from ktorrent.handlers import BitmaskHandler,\
     NotInterestedHandler,\
     RequestHandler,\
     CancelHandler,\
-    PieceHandler
+    PieceHandler,\
+    HaveAllHandler
 
 routes = { 'BITFIELD': BitmaskHandler,
            'UTORRENT_MSG': UTHandler,
            'PORT': PortHandler,
            'HAVE': HaveHandler,
+           'HAVE_ALL': HaveAllHandler,
            'INTERESTED': InterestedHandler,
            'NOT_INTERESTED': NotInterestedHandler,
            'CHOKE': ChokeHandler,
@@ -121,9 +123,13 @@ tornado.ioloop.PeriodicCallback( Connection.cleanup_old_requests, 1000 * 1, io_l
 #testhash = '0EB7F828D4E097FDB1ADE74186528CD31DFC1A3C'
 #testhash = '084F42A339A41E78692BFE8930BCFFF8A17DB18C'
 #testhash = '875CA32E6B730F628D2EB7E312D289DC8E54768C'
-#testhash = '084F42A339A41E78692BFE8930BCFFF8A17D0000'
+testhash = '084F42A339A41E78692BFE8930BCFFF8A17D0000'
 #Connection.initiate('ec2-107-22-42-93.compute-1.amazonaws.com',43858,testhash)
 #Connection.initiate('10.10.90.191',,testhash)
 #Connection.initiate('10.10.90.242',8030,testhash)
+import random
+randomhash = random.choice(MetaStorage.keys())
+logging.info('random hash %s' % randomhash)
+Connection.initiate('graehl.dyndns.org',8030,randomhash)
 
 ioloop.start()
