@@ -362,7 +362,7 @@ class Torrent(object):
         self.hash = infohash
         self.pieces = {}
         self.files = {}
-        filename = MetaStorage.get(self.hash)
+        filename = MetaStorage.get(self.hash.upper())
         if filename:
             meta = bencode.bdecode( open( os.path.join(options.datapath, filename) ).read() )
             self.update_meta( meta )
