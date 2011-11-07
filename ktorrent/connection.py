@@ -189,7 +189,7 @@ class Connection(object):
                                 cur_piece = None
 
                     else:
-                        logging.error("no piece that can make requests!")
+                        #logging.error("no piece that can make requests!")
                         break
                         #conn._active = False
                         #conn.flushout_send_queue_and_say_not_interested()
