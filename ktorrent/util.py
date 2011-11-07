@@ -77,7 +77,7 @@ class MetaStorage(object):
     def insert(cls, torrent):
         torrent_meta = torrent.meta
         filename = torrent_meta['info']['name'] + '.torrent'
-        cls.data[ torrent.hash ] = filename
+        cls.data[ torrent.hash.upper() ] = filename
         fo = open( os.path.join(options.datapath, filename), 'w')
         fo.write( bencode.bencode(torrent_meta) )
         fo.close()
