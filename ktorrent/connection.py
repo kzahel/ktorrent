@@ -94,6 +94,8 @@ class Connection(object):
                 'p': options.port}
         if self.torrent and self.torrent.meta:
             data['metadata_size'] = len(self.torrent.meta_info)
+        self._my_extension_handshake = data
+        self._my_extension_handshake_codes = dict( (v,k) for k,v in data['m'].items() )
         logging.info('sending ext message %s' % data)
         self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(data))
 
@@ -328,8 +330,8 @@ class Connection(object):
         self._am_interested = False
         self._sent_handshake = False
         self._remote_extension_handshake = None
-
         self._my_extension_handshake = None
+        self._my_extension_handshake_codes = None
 
         self._send_request_queue = []
 

@@ -130,17 +130,21 @@ class UTHandler(BTMessageHandler):
                     resp['metadata_size'] = len(self.request.connection.torrent.meta_info)
 
                 if 'ut_metadata' in self.request.connection._remote_extension_handshake['m']:
+                    # this is not necessary to match the remote's codes
                     code = self.request.connection._remote_extension_handshake['m']['ut_metadata']
                     resp['m']['ut_metadata'] = code
 
                 self.request.connection._my_extension_handshake = resp
+                self.request.connection._my_extension_handshake_codes = dict( (v,k) for k,v in resp['m'].items() )
                 logging.info('sending ext msg %s' % resp)
                 # send handshake message
 
                 self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(resp), log=False)
-        elif self.request.connection._remote_extension_handshake and ext_msg_type in self.request.connection._remote_extension_handshake_r:
 
-            ext_msg_str = self.request.connection._remote_extension_handshake_r[ext_msg_type]
+        elif self.request.connection._my_extension_handshake_codes and ext_msg_type in self.request.connection._my_extension_handshake_codes:
+
+            ext_msg_str = self.request.connection._my_extension_handshake_codes[ext_msg_type]
+
             logging.info('handling %s message' % ext_msg_str)
             if ext_msg_str == 'ut_metadata':
 

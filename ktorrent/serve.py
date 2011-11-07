@@ -130,7 +130,9 @@ testhash = '084F42A339A41E78692BFE8930BCFFF8A17D0000'
 
 #import random
 #randomhash = random.choice(MetaStorage.keys())
+
 #logging.info('random hash %s' % randomhash)
-#Connection.initiate('graehl.dyndns.org',8030,randomhash)
+#purisma = '27689B76CDA08C9E21ACD9584CDB90AA82C63676'
+#Connection.initiate('76.14.88.209',57211,purisma)
 
 ioloop.start()
