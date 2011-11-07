@@ -201,7 +201,7 @@ class UnChokeHandler(BTMessageHandler):
 class HaveAllHandler(BTMessageHandler):
     def handle(self):
         if self.request.connection.torrent.meta:
-            self.request.connection._remote_bitmask[index] = [1] * len(self.request.connection.torrent.bitmask)
+            self.request.connection._remote_bitmask = [1] * len(self.request.connection.torrent.bitmask)
         else:
             logging.warn('dont know how to handle have all because we dont have torrent meta')
         self.finish()
