@@ -127,9 +127,10 @@ testhash = '084F42A339A41E78692BFE8930BCFFF8A17D0000'
 #Connection.initiate('ec2-107-22-42-93.compute-1.amazonaws.com',43858,testhash)
 #Connection.initiate('10.10.90.191',,testhash)
 #Connection.initiate('10.10.90.242',8030,testhash)
-import random
-randomhash = random.choice(MetaStorage.keys())
-logging.info('random hash %s' % randomhash)
-Connection.initiate('graehl.dyndns.org',8030,randomhash)
+
+#import random
+#randomhash = random.choice(MetaStorage.keys())
+#logging.info('random hash %s' % randomhash)
+#Connection.initiate('graehl.dyndns.org',8030,randomhash)
 
 ioloop.start()
