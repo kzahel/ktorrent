@@ -140,7 +140,8 @@ if options.startup_connect_to:
     if options.startup_connect_to_hash:
         startuphash = options.startup_connect_to_hash
     else:
-        purisma = '27689B76CDA08C9E21ACD9584CDB90AA82C63676'
+        #purisma = '27689B76CDA08C9E21ACD9584CDB90AA82C63676'
+        purisma = 'FC59F2D267DA5480F0FAF37373C54F59CB5A980E'
         startuphash = purisma
     Connection.initiate(host,port,startuphash)
 

@@ -308,7 +308,7 @@ class Connection(object):
 
         logging.info('initialized connection %s' % self)
         self.request_callback = request_callback
-        self._my_peerid = '-KY1111-' + '3'*12
+        self._my_peerid = '-KY1111-' + constants.my_peer_id
         self._request = None
 
         self._stored_bitmask = None # in case we dont have torrent meta yet, store this for processing later
@@ -376,8 +376,8 @@ class Connection(object):
     def got_handshake(self, data):
         logging.info('got handshake %s' % [data])
         self.handshake = parse_handshake(data)
-        self.infohash = self.handshake['infohash']
         if self.handshake:
+            self.infohash = self.handshake['infohash']
             if not self.torrent:
                 self.torrent = Torrent.instantiate( binascii.hexlify(self.handshake['infohash']) )
                 logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))

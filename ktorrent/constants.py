@@ -59,3 +59,5 @@ tor_meta_codes = { 0: 'request',
                    2: 'reject' }
 
 tor_meta_codes_r = dict( (v,k) for k,v in tor_meta_codes.iteritems() )
+import random
+my_peer_id = ''.join([str(random.randrange(0,10)) for _ in range(12)])
