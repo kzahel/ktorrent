@@ -4,6 +4,8 @@ import tornado.netutil
 import tornado.httpserver
 import tornado.web
 import logging
+from hashlib import sha1
+import bencode
 from tornado.options import define, options
 from torrent import Torrent
 
@@ -19,6 +21,7 @@ define('resume_file',default='/home/kyle/ktorrent/resume.dat', type=str)
 define('template_path',default='/home/kyle/ktorrent/templates', type=str)
 
 define('startup_connect_to', default='', type=str)
+define('startup_connect_torrent', default='', type=str)
 define('startup_connect_to_hash', default='', type=str)
 
 define('outbound_piece_limit',default=20, type=int)
@@ -108,11 +111,15 @@ ioloop = tornado.ioloop.IOLoop()
 Connection.io_loop = ioloop
 Connection.application = application
 
+
 frontend_application = tornado.web.Application(frontend_routes, **settings)
 frontend_server = tornado.httpserver.HTTPServer(frontend_application, io_loop=ioloop)
-frontend_server.bind(options.frontend_port, '')
-frontend_server.start()
-logging.info('started frontend server')
+try:
+    frontend_server.bind(options.frontend_port, '')
+    frontend_server.start()
+    logging.info('started frontend server')
+except:
+    logging.error('could not start frontend server')
 
 btserver = BTProtocolServer(application, io_loop=ioloop)
 btserver.bind(options.port, '')
@@ -134,15 +141,25 @@ testhash = '084F42A339A41E78692BFE8930BCFFF8A17D0000'
 #import random
 #randomhash = random.choice(MetaStorage.keys())
 #logging.info('random hash %s' % randomhash)
+startuphash = None
+if options.startup_connect_torrent:
+    logging.info('startup connect torrent! %s' % options.startup_connect_torrent)
+    fo = open( options.startup_connect_torrent )
+    torrentdata = bencode.bdecode( fo.read() )
+    startuphash = sha1( bencode.bencode( torrentdata['info'] ) ).hexdigest()
+    MetaStorage.data[ startuphash.upper() ] = str(options.startup_connect_torrent)
+    MetaStorage.sync()
+
 if options.startup_connect_to:
     host,port = options.startup_connect_to.split(':')
     port = int(port)
-    if options.startup_connect_to_hash:
-        startuphash = options.startup_connect_to_hash
-    else:
-        #purisma = '27689B76CDA08C9E21ACD9584CDB90AA82C63676'
-        purisma = 'FC59F2D267DA5480F0FAF37373C54F59CB5A980E'
-        startuphash = purisma
+    if not startuphash:
+        if options.startup_connect_to_hash:
+            startuphash = options.startup_connect_to_hash
+        else:
+            #purisma = '27689B76CDA08C9E21ACD9584CDB90AA82C63676'
+            purisma = 'FC59F2D267DA5480F0FAF37373C54F59CB5A980E'
+            startuphash = purisma
     Connection.initiate(host,port,startuphash)
 
 ioloop.start()

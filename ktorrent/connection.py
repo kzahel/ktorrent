@@ -68,6 +68,7 @@ class Connection(object):
 
     @classmethod
     def initiate(cls, host, port, infohash):
+        logging.info('initiating connection with %s,%s with hash %s' % (host, port, infohash))
         af = socket.AF_INET
         addrinfo = socket.getaddrinfo(host, port, af, socket.SOCK_STREAM,
                                           0, 0)
@@ -90,7 +91,7 @@ class Connection(object):
     def send_extension_handshake(self):
         self._sent_extension_handshake = True
         data = {'v': 'ktorrent 0.01',
-                'm': {'ut_metadata': 1},
+                'm': {'ut_metadata': 99}, # UT SEEMS TO USE 2 and SUCKS
                 'p': options.port}
         if self.torrent and self.torrent.meta:
             data['metadata_size'] = len(self.torrent.meta_info)

@@ -111,7 +111,7 @@ from constants import tor_meta_codes, tor_meta_codes_r, HANDSHAKE_CODE
 class UTHandler(BTMessageHandler):
     def handle(self):
         ext_msg_type = ord(self.request.payload[0])
-        
+        logging.info('UTHandler - extension message type %s' % ext_msg_type)
 
         if ext_msg_type == HANDSHAKE_CODE:
             info = bencode.bdecode(self.request.payload[1:])
@@ -144,6 +144,7 @@ class UTHandler(BTMessageHandler):
         elif self.request.connection._my_extension_handshake_codes and ext_msg_type in self.request.connection._my_extension_handshake_codes:
 
             ext_msg_str = self.request.connection._my_extension_handshake_codes[ext_msg_type]
+            their_ext_msg_type = self.request.connection._remote_extension_handshake['m'][ext_msg_str]
 
             logging.info('handling %s message' % ext_msg_str)
             if ext_msg_str == 'ut_metadata':
@@ -166,14 +167,14 @@ class UTHandler(BTMessageHandler):
                         if self.request.connection.torrent and self.request.connection.torrent.meta:
                             logging.info('have torrent file... will service the metadata chunk request!')
                             payload = self.request.connection.torrent.get_metadata_piece_payload(info['piece'])
-                            self.send_message('UTORRENT_MSG', chr(ext_msg_type) + payload)
+                            self.send_message('UTORRENT_MSG', chr(their_ext_msg_type) + payload)
                         else:
                             logging.error('dont have torrent matadata cant serve it!')
                             # todo: send deny message
                             deny_payload = bencode.bencode( { 'msg_type': tor_meta_codes_r['reject'] } )
 
 
-                            self.send_message('UTORRENT_MSG', chr(ext_msg_type) + deny_payload)
+                            self.send_message('UTORRENT_MSG', chr(their_ext_msg_type) + deny_payload)
             else:
                 logging.error('unhandled metadata extension %s' % ext_msg_str)
                 if options.asserts:
