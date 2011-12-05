@@ -290,6 +290,8 @@ class PieceHandler(BTMessageHandler):
         tor_finished, piece_finished = self.request.connection.torrent.get_piece(index).handle_peer_response(self, offset, data)
         conn = self.request.connection
 
+        conn._piece_bytes_downloaded += len(data)
+
         #if conn._piece_request_outbound == 0:
         #    Connection.make_piece_request(conn)
 

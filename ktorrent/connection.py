@@ -6,6 +6,7 @@ import constants
 import math
 import bencode
 import pdb
+import sys
 import random
 from hashlib import sha1
 import binascii
@@ -279,6 +280,8 @@ class Connection(object):
             self._piece_request_outbound += 1
         elif type == 'BITFIELD':
             self._sent_bitmask = True
+        elif type == 'PIECE':
+            self._piece_bytes_uploaded += len(payload)
 
         if payload == None:
             payload = ''
@@ -318,6 +321,8 @@ class Connection(object):
         self._meta_requested = False
         self._meta_pieces = {}
         self._sent_extension_handshake = False
+        self._piece_bytes_uploaded = 0 # keeps track of how many payload piece request bytes we uploaded
+        self._piece_bytes_downloaded = 0 # keeps track of how many payload piece request bytes we downloaded
         self.torrent = None
         self._sent_bitmask = False
         self._piece_request_queued = 0
@@ -352,7 +357,17 @@ class Connection(object):
             self.torrent.cleanup_old_requests(self, -1)
         self._active = False
         Connection.instances.remove(self)
-        logging.error('closed peer connection %s' % [self.address, self.torrent.hash[:6] + '..' if self.torrent else None])
+
+        logging.warn('closed peer connection %s' % [self.address, self.torrent.hash[:6] + '..' if self.torrent else None])
+        complete_upload = self._piece_bytes_uploaded >= self.torrent.get_size()
+        complete_download = self._piece_bytes_downloaded >= self.torrent.get_size()
+        logging.info('finished %s, %s/%s piece bytes uploaded, %s/%s downloaded' % ((complete_upload or complete_download), 
+                                                                                    self._piece_bytes_uploaded, self.torrent.get_size(),
+                                                                                    self._piece_bytes_downloaded, self.torrent.get_size()
+                                                                                    ))
+        if options.startup_exit_on_close:
+            sys.exit(0 if (complete_upload or complete_download) else 1)
+
 
     def get_more_messages(self):
         if not self.stream.closed():

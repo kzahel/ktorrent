@@ -23,6 +23,7 @@ define('template_path',default='/home/kyle/ktorrent/templates', type=str)
 define('startup_connect_to', default='', type=str)
 define('startup_connect_torrent', default='', type=str)
 define('startup_connect_to_hash', default='', type=str)
+define('startup_exit_on_close', default=False, help='quit program when connection closes', type=bool)
 
 define('outbound_piece_limit',default=20, type=int)
 

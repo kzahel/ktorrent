@@ -4,3 +4,60 @@ fast and efficient for downloading files.
 now downloads from non-100% complete peers
 
 has support for ut_metadata extension
+
+
+Behavior:
+====
+
+Accepts connections on options.port, and attempts to download from
+anyone who connects on that port and sends a valid BitTorrent
+handshake message. If the handshake message includes the extension
+which supports sending the torrent metadata, it will request that
+first.
+
+Also with startup options it can initiate a connection to another
+peer.
+
+Running:
+====
+python -m ktorrent.serve
+
+Testing:
+====
+
+try running uTorrent and with a torrent selected, go to the "peers"
+pane, right click, "add peer" and enter the host:port (default port
+8030) and start the torrent. You should see ktorrent start to download
+pieces.
+
+
+Other options:
+====
+
+- options.datapath - place to store torrent files and torrent data
+
+- options.resume_file - place to store torrent metadata info (infohash
+to .torrent file disk location mapping)
+
+- options.startup_connect_to - give an ip:port and it will initiate a
+handshake with this address, using either:
+
+  - options.startup_connect_torrent (a filesystem path of a .torrent file)
+    or
+  - options.startup_connet_to_hash (a 40 character hex torrent infohash)
+
+- if options.startup_exit_on_close is specified, the program will quit
+after the first peer connection closes.
+
+
+Currently not very useful options:
+====
+
+- options.frontend_port - a web interface for controlling/observing
+  program behavior (has no functionality -- yet)
+
+- options.static_path - where the web interface can serve static files
+  from (like html or images)
+
+- options.template_path - where the web interface can serve template
+  files from (for html)
