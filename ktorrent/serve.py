@@ -90,12 +90,13 @@ routes = { 'BITFIELD': BitmaskHandler,
            'PIECE': PieceHandler
            }
 
-from ktorrent.frontend import IndexHandler, StatusHandler
+from ktorrent.frontend import IndexHandler, StatusHandler, APIHandler
 
 frontend_routes = [
     ('/?', IndexHandler),
     ('/?', tornado.web.StaticFileHandler),
-    ('/statusv2?', StatusHandler)
+    ('/statusv2?', StatusHandler),
+    ('/api', APIHandler)
 ]
 
 application = BTApplication(routes, **settings)

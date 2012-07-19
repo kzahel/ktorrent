@@ -11,6 +11,7 @@ import random
 from hashlib import sha1
 import binascii
 from torrent import Torrent
+from peer import Peer
 from util import MetaStorage, parse_bitmask
 from tornado import stack_context
 from tornado.options import options
@@ -100,6 +101,7 @@ class Connection(object):
         self._my_extension_handshake_codes = dict( (v,k) for k,v in data['m'].items() )
         logging.info('sending ext message %s' % data)
         self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(data))
+        self.send_dht_port()
 
     @classmethod
     def notify_torrent_has_bitmask(cls, torrent):
@@ -389,9 +391,16 @@ class Connection(object):
                            ))
         self.stream.write(towrite)
 
+    def send_dht_port(self):
+        self.send_message('PORT', struct.pack('>H',8031))
+        #pass
+
     def got_handshake(self, data):
         logging.info('got handshake %s' % [data])
         self.handshake = parse_handshake(data)
+        logging.info('parsed handshake %s' % [self.handshake])
+        self.peerid = self.handshake['peerid']
+        self.peer = Peer.instantiate(self.peerid)
         if self.handshake:
             self.infohash = self.handshake['infohash']
             if not self.torrent:

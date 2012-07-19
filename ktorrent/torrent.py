@@ -9,6 +9,7 @@ import pdb
 import struct
 import constants
 import time
+import bencode
 from util import MetaStorage
 from constants import tor_meta_codes, tor_meta_codes_r
 
@@ -230,6 +231,41 @@ class Torrent(object):
     instances = {}
     Connection = None
 
+    def load_quick_resume(self):
+        if os.path.exists( options.resume_file ):
+            logging.info('loading quick resume file')
+            fo = open(options.resume_file)
+            resume_data = bencode.bdecode( fo.read() )
+            if self.hash in resume_data:
+                if 'bitmask' in resume_data[self.hash]:
+                    logging.info('restored bitmask to %s' % self)
+                    bitmask = resume_data[self.hash]['bitmask']
+                    self._bitmask_incomplete_count = bitmask.count(0)
+                    return bitmask
+    
+    @classmethod
+    def save_quick_resume(cls):
+        #saves computed infohashes on shutdown
+        if os.path.exists( options.resume_file ):
+            fo = open(options.resume_file)
+            data = bencode.bdecode( fo.read() )
+            fo.close()
+        else:
+            data = {}
+
+        for k,torrent in cls.instances.iteritems():
+            if torrent.bitmask:
+                curdata = data[torrent.hash]
+                newdata = { 'bitmask' : torrent.bitmask }
+                if curdata:
+                    data[torrent.hash].update(newdata)
+                else:
+                    data[torrent.hash] = newdata
+
+        fo = open(options.resume_file,'w')
+        fo.write( bencode.bencode( data ) )
+        fo.close()
+
     def cleanup_old_requests(self, conn, t=None):
         if t is None: t = time.time()
 
@@ -298,9 +334,17 @@ class Torrent(object):
     def get_num_pieces(self):
         return len(self.meta['info']['pieces'])/20
 
+    def get_bitmask(self, resume=True):
+        # retrieves bitmask from the resume.dat or creates it
+        if resume:
+            bitmask = self.load_quick_resume()
+            if bitmask:
+                return bitmask
+        return self.create_bitmask()
+
     def create_bitmask(self):
         bitmask = []
-        logging.info('computing piece hashes...')
+        logging.info('computing piece hashes... (this could take a while)')
         for piecenum in range(self.get_num_pieces()):
             diskpiecehash = self.get_piece_disk_hash(piecenum)
             metahash = self.meta['info']['pieces'][20*piecenum: 20*(piecenum+1)]
@@ -354,7 +398,7 @@ class Torrent(object):
                 b += filedata['length']
         else:
             self._file_byte_accum = [0]
-        self.bitmask = self.create_bitmask()
+        self.bitmask = self.get_bitmask()
         logging.info('self.bitmask is %s' % ''.join(map(str,self.bitmask)))
         Torrent.Connection.notify_torrent_has_bitmask(self)
 

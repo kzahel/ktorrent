@@ -65,7 +65,8 @@ class MetaStorage(object):
     @classmethod
     def get(cls, infohash):
         if infohash in cls.data:
-            filename = cls.data[infohash]
+            attributes = cls.data[infohash]
+            filename = attributes['filename']
             if os.path.exists( os.path.join( options.datapath, filename ) ):
                 return filename
             else:
@@ -77,7 +78,7 @@ class MetaStorage(object):
     def insert(cls, torrent):
         torrent_meta = torrent.meta
         filename = torrent_meta['info']['name'] + '.torrent'
-        cls.data[ torrent.hash.upper() ] = filename
+        cls.data[ torrent.hash.upper() ] = { 'filename': filename }
         fo = open( os.path.join(options.datapath, filename), 'w')
         fo.write( bencode.bencode(torrent_meta) )
         fo.close()
