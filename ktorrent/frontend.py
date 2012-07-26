@@ -1,23 +1,26 @@
 import tornado.web
 import logging
-from ktorrent.connection import Connection
-from ktorrent.torrent import Torrent
+import urllib
+from connection import Connection
+from torrent import Torrent
+from client import Client
+from session import Session
+from peer import Peer
 import json
 from cgi import escape
 import signal
 import pdb
 import sys
-
-
-def got_interrupt_signal(signum=None, frame=None):
-    logging.info('got quit signal ... saving quick resume')
-    Torrent.save_quick_resume()
-    sys.exit()
-
-signal.signal(signal.SIGINT, got_interrupt_signal)
+from tornado.options import options
 
 class BaseHandler(tornado.web.RequestHandler):
-    pass
+    def writeout(self, args):
+        if 'callback' in self.request.arguments:
+            self.set_header('Content-Type','text/javascript')
+            self.write( '%s(%s)' % (self.get_argument('callback'), json.dumps(args, indent=2)) )
+        else:
+            self.write(args)
+
 
 class IndexHandler(BaseHandler):
     def get(self):
@@ -27,8 +30,11 @@ class StatusHandler(BaseHandler):
     def get(self):
         attrs = {}
 
-        attrs.update( dict( connections = Connection.instances,
-                            torrents = Torrent.instances
+        attrs.update( dict( 
+                clients = [ (c, c.torrents) for c in Client.instances ],
+                connections = Connection.instances,
+                torrents = dict( (h, {'torrent':t, 'conns':t.connections}) for h,t in Torrent.instances.iteritems() ),
+                peers = Peer.instances.values()
                             ) )
         def custom(obj):
             return escape(str(obj))
@@ -64,8 +70,76 @@ class StatusHandler(BaseHandler):
                 #return self.write(str(e))
         #options['colorize'].set(colorval)
 
+class VersionHandler(BaseHandler):
+    def get(self):
+        args = {'name':'ktorrent','version':'0.1'}
+        
+        self.writeout(args)
+
+def decode_func_args(s):
+    # turns a string of the form 'btapp/add/torrent(["http://featuredcontent.utorrent.com/torrents/CountingCrows-BitTorrent.torrent"])/'
+    # into { 'path': 'btapp/add/torrent', 'args': [...] }
+    p = s[:s.index('(')]
+    a = s[ s.index('(')+1 : len(s)-2 ]
+    return { 'path': p, 'args': json.loads(a) }
+
+class BtappHandler(BaseHandler):
+    def get(self):
+        if 'pairing' in self.request.arguments:
+            key = self.get_argument('pairing')
+            # validate pairing key
+
+            if 'type' in self.request.arguments:
+                if 'session' in self.request.arguments:
+                    session = Session.get(self.get_argument('session'))
+                    if session:
+                        if self.get_argument('type') == 'update':
+                            self.writeout( session.get_update() )
+                        elif self.get_argument('type') == 'function':
+                            queries = self.get_argument('queries')
+                            qargs = json.loads(queries)
+                            args = [urllib.unquote(arg) for arg in qargs]
+                            decoded = [decode_func_args(a) for a in args]
+                            for fnargs in decoded:
+                                self.writeout( session.handle_function(fnargs) )
+                                return
+                        else:
+                            self.writeout( { 'no':'huh' } )
+                        # validate session
+                        #self.writeout( [ {'add': {'btapp':{'torrent':{'aotheu':{'hello':23}}}} } ] )
+                    else:
+                        self.set_status(404)
+                else:
+                    #logging.info('no session id in args -- %s, %s' % (self.request.uri, self.request.arguments))
+                    session = Session.create(Client.instances[0])
+                    self.writeout( {'session':session.id} )
+            else:
+                self.writeout( { 'hey':'whatup' } )
+        else:
+            self.set_status(403)
+
+class PairHandler(BaseHandler):
+    def get(self):
+        key = '0'*40
+        self.write('%s("%s")' % (self.get_argument('callback'), key))
+
+class PingHandler(BaseHandler):
+    image = [66, 77, 66, 0, 0, 0, 0, 0, 0, 0, 62, 0, 0, 0, 40, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0,\
+                 0, 1, 0, 1, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,\
+                 0, 0, 0, 0, 0, 0, 255, 255, 255, 0, 128, 0, 0, 0]
+
+
+    def get(self):
+        self.set_header('Content-Type','image/x-ms-bmp')
+        self.write( ''.join(map(chr,PingHandler.image)) )
+
+
 class APIHandler(BaseHandler):
     def get(self): return self.post();
 
     def post(self):
         self.write( dict( foo = 23 ) )
+
+def request_logger(handler):
+    if options.verbose > 1:
+        logging.info('finished handler %s' % handler)

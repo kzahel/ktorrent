@@ -9,239 +9,77 @@ import pdb
 import struct
 import constants
 import time
+from bitcounter import BitCounter
 import bencode
-from util import MetaStorage
+from settings import Settings
 from constants import tor_meta_codes, tor_meta_codes_r
 
-def intersect(i1, i2):
-    if i1[1] < i2[0] or i2[1] < i1[0]:
-        return None
-    else:
-        return max(i1[0],i2[0]), \
-            min(i1[1],i2[1])
-
-def ensure_exist(path):
-    parentdir = os.path.sep.join( path.split(os.path.sep)[:-1] )
-    if not os.path.exists(parentdir):
-        os.makedirs(parentdir)
-
-    if not os.path.exists(path):
-        fo = open(path, 'w')
-        fo.write('')
-        fo.close()
-
-class File(object):
-    def __init__(self, torrent, num):
-        self.num = num
-        self.torrent = torrent
-        self.size = self.get_size()
-        self.start_byte = self.torrent._file_byte_accum[self.num]
-        self.end_byte = self.start_byte + self.size - 1
-        self.path = self.get_path()
-
-    def get_data_in_interval(self, pinterval):
-        interval = intersect( pinterval,
-                              (self.start_byte, self.end_byte) )
-        if False:
-            logging.info('file %s get data intersecting interval %s --> %s' % ( (self.start_byte, self.end_byte),
-                                                                                pinterval,
-                                                                                interval ))
-        if interval:
-            readsz = interval[1] - interval[0] + 1
-            if os.path.isfile( self.get_path() ):
-                fo = open(self.get_path())
-                if self.start_byte >= interval[0]:
-                    # iiiiii
-                    #    fffff
-                    # minimum of...
-                    data = fo.read( readsz )
-                else:
-                    # ffff
-                    #   iiiiiii
-                    #logging.info('seeking to file byte offset')
-                    #pdb.set_trace()
-                    fo.seek( interval[0] - self.start_byte )
-                    data = fo.read( readsz )
-                if len(data) != readsz:
-                    #logging.warn('filling in with null bytes')
-                    data = data + '\0' * (readsz - len(data))
-
-                return data
-            else:
-                return '\0' * readsz
-
-    def write_data_from_piece(self, piece, data):
-        # given a complete piece, write it to disk if it intersects us...
-        interval = intersect( (piece.start_byte, piece.end_byte),
-                              (self.start_byte, self.end_byte) )
-        if interval:
-            dataoffset = interval[0] - piece.start_byte
-            towrite = data[dataoffset:dataoffset + (interval[1] - interval[0]) + 1]
-            ensure_exist( self.get_path() )
-            fo = open( self.get_path(), 'r+b' )
-            if self.start_byte <= piece.start_byte:
-                # fff...
-                #    ppp..
-                fo.seek(piece.start_byte - self.start_byte)
-            fo.write(towrite)
-            fo.close()
-
-    def get_size(self):
-        if self.torrent.is_multifile():
-            return self.torrent.meta['info']['files'][self.num]['length']
-        else:
-            return self.torrent.get_size()
-
-    def is_last(self):
-        return self.num == self.torrent.get_num_files() - 1
-
-    def byte_range(self):
-        return (self.torrent._file_byte_accum[i], self.torrent._file_byte_accum[i] + self.size - 1)
-
-    def get_path(self):
-        if self.torrent.is_multifile():
-            path = self.torrent.meta['info']['files'][self.num]['path']
-            if len(path) > 1:
-                filesitsin = os.path.join( options.datapath, self.torrent.meta['info']['name'], os.path.sep.join(path[:-1]) )
-                if not os.path.isdir( filesitsin ):
-                    os.makedirs( filesitsin )
-            relfilepath = os.path.sep.join( path )
-            return os.path.join( options.datapath, self.torrent.meta['info']['name'], relfilepath )
-        else:
-            return os.path.join( options.datapath, self.torrent.meta['info']['name'] )
-
-class Piece(object):
-    std_size = 2**14
-
-    def cleanup_old_requests(self, conn, t):
-        # purges old piece requests that never got responses
-        todelete = []
-        for k,data in self.queue_data.iteritems():
-            reqtime, reqconn = data
-            if conn == reqconn:
-                if t - reqtime > options.piece_request_timeout:
-                    logging.error('piece request %s timeout!' % [k])
-                    todelete.append(k)
-        for data in todelete:
-            del self.queue_data[data]
-            self.queue.remove(data)
-
-    def __init__(self, torrent, num):
-        self.torrent = torrent
-        self.num = num
-        self.sz = self.torrent.get_piece_len(self.num)
-        self.start_byte = self.torrent.get_piece_len() * self.num
-        self.end_byte = self.start_byte + self.sz - 1
-        #self.data = None
-        self.chunks = None
-        self.numchunks = int(math.ceil( self.sz / float(Piece.std_size) ))
-        self.queue = []
-        self.queue_data = {}
-        self.outbound = None # todo: fast peer extension cancel queued
-
-    def is_last(self):
-        return self.num == self.torrent.get_num_pieces() - 1
-
-    def init_data(self):
-        self.chunks = [None] * self.numchunks
-        #self.data = [None] * self.sz
-
-    def get_data(self, offset, size):
-        interval = (self.start_byte + offset, self.start_byte + offset + size - 1)
-        chunks = []
-        for i in range(self.torrent.get_num_files()):
-            chunk = self.torrent.get_file(i).get_data_in_interval(interval)
-            if chunk:
-                chunks.append(chunk)
-        retdata = ''.join(chunks)
-        #logging.info('got data got sz %s, wanted %s' % (len(retdata), size))
-        if len(retdata) != size:
-            pdb.set_trace()
-        return retdata
-
-    def write_data(self, data):
-        ''' writes to all spanning files '''
-        for i in range(self.torrent.get_num_files()):
-            self.torrent.get_file(i).write_data_from_piece(self, data)
-
-    def get_file_spans(self):
-        files = []
-        for i,v in enumerate(self.torrent._file_byte_accum):
-            if v >= self.end_byte: # minus one?
-                break
-            if self.start_byte >= v:
-                files.append(i)
-        return files
-
-    def make_request(self, conn, peek=False):
-        t = time.time()
-        #logging.info('piece make request!')
-        i = 0
-
-        while i < self.numchunks:
-
-            offset = Piece.std_size * i
-
-            if offset + Piece.std_size >= self.sz:
-                sz = self.sz - offset
-            else:
-                sz = Piece.std_size
-            
-            data = (self.num, offset, sz)
-
-            if (not self.chunks or not self.chunks[i]) and data not in self.queue:
-                if not peek:
-                    self.queue.append(data) # todo: piece request timeouts
-                    self.queue_data[data] = (t, conn)
-                return data
-
-            i += 1
-
-    def handle_peer_response(self, conn, offset, data):
-        reqdata = (self.num, offset, len(data))
-
-        if self.chunks is None: 
-            self.init_data()
-        if reqdata in self.queue:
-            self.queue.remove(reqdata)
-            del self.queue_data[reqdata]
-
-        # TODO: improve this to reduce copying
-
-        self.chunks[offset/Piece.std_size] = data
-        if None not in self.chunks:
-            #logging.info('piece complete')
-
-            metahash = self.torrent.meta['info']['pieces'][20*self.num: 20*(self.num+1)]
-
-            data = ''.join(self.chunks)
-            self.chunks = None
-
-            if sha1(data).digest() == metahash:
-                #logging.info('success got piece %s' % self.num)
-                torrent_finished = self.torrent.handle_good_piece(self, data)
-                piece_finished = True
-                return torrent_finished, piece_finished
-            else:
-                self.torrent.handle_bad_piece(self)
-        return False, False
-
+from file import File
+from piece import Piece
 
 class Torrent(object):
     instances = {}
-    Connection = None
+
+    attribute_keys = ['down_speed','progress','downloaded','size', 'peers', 'name', 'status', 'message']
+    persist_keys = ['upload_limit','status','queue_position'] # store in the settings
+    #bits: ['started', 'checking', 'start after check', 'checked', 'error', 'paused', 'queued', 'loaded']
+
+    _default_attributes = {'status':0, 'queue_position':None, 'upload_limit':0} # persist this...
+
+    def __repr__(self):
+        return '<Torrent %s (meta:%s, %s)>' % (self.hash, True if self.meta else False, self.get_summary())
+
+    def throttled(self):
+        return self.bitcounter.recent() > self.max_dl_rate()
+
+    def max_dl_rate(self):
+        return 16384 * 2
+
+    def recheck(self):
+        # re-checks all pieces
+        pass
+
+    def quick_recheck(self):
+        # just checks files existing and file sizes
+        pass
+
+    def dump_state(self):
+        data =  {'stop': "[nf]()",
+                 'start': "[nf]()",
+                 'remove': "[nf](number)()",
+                 'recheck': "[nf]()",
+                 'add_peer':"[nf](string)(dispatch)",
+                 'hash':self.hash,
+                 'properties':{'all':self.get_attributes()}}
+        #if self.meta:
+        #    data['file'] = self.dump_file_state()
+        return data
+
+    def dump_file_state(self):
+        # never stored off files?
+        d = {}
+        for filenum in self.files:
+            pass
+        return d
+
+    def get_attributes(self):
+        return dict( (k, self.get_attribute(k)) for k in self.attribute_keys )
+
+    def get_summary(self):
+        if self.bitmask:
+            return 'zeropieces:%s/%s' % (self.bitmask.count(0),
+                                     len(self.bitmask))
+        else:
+            return 'no bitmask'
 
     def load_quick_resume(self):
-        if os.path.exists( options.resume_file ):
-            logging.info('loading quick resume file')
-            fo = open(options.resume_file)
-            resume_data = bencode.bdecode( fo.read() )
-            if self.hash in resume_data:
-                if 'bitmask' in resume_data[self.hash]:
-                    logging.info('restored bitmask to %s' % self)
-                    bitmask = resume_data[self.hash]['bitmask']
-                    self._bitmask_incomplete_count = bitmask.count(0)
-                    return bitmask
+        resume_data = Settings.get()
+        if resume_data and self.hash in resume_data:
+            if 'bitmask' in resume_data[self.hash]:
+                #logging.info('restored bitmask to %s' % self)
+                bitmask = resume_data[self.hash]['bitmask']
+                self._bitmask_incomplete_count = bitmask.count(0)
+                return bitmask
     
     @classmethod
     def save_quick_resume(cls):
@@ -252,18 +90,20 @@ class Torrent(object):
             fo.close()
         else:
             data = {}
-
+        logging.warn('save quick resume race condition with filename')
         for k,torrent in cls.instances.iteritems():
             if torrent.bitmask:
-                curdata = data[torrent.hash]
                 newdata = { 'bitmask' : torrent.bitmask }
-                if curdata:
+                if torrent.hash in data:
+                    curdata = data[torrent.hash]
                     data[torrent.hash].update(newdata)
                 else:
                     data[torrent.hash] = newdata
 
         fo = open(options.resume_file,'w')
         fo.write( bencode.bencode( data ) )
+        if options.verbose > 3:
+            logging.info('write settings %s' % data)
         fo.close()
 
     def cleanup_old_requests(self, conn, t=None):
@@ -271,6 +111,13 @@ class Torrent(object):
 
         for k,piece in self.pieces.iteritems():
             piece.cleanup_old_requests(conn, t)
+
+    def remove(self):
+        logging.info('remove torrent %s' % self)
+        for conn in self.connections:
+            logging.info('closing torrent connection %s' % conn)
+            conn.shutdown(reason='torrent deleted')
+        del self.instances[self.hash]
 
     def handle_bad_piece(self, piece):
         logging.error('BAD PIECE!')
@@ -299,7 +146,7 @@ class Torrent(object):
                 
                 start = i+1
         except:
-            pass
+            logging.error('error selecting piece (bad try block...)')
 
     def get_lowest_incomplete_piece(self):
         try:
@@ -339,6 +186,8 @@ class Torrent(object):
         if resume:
             bitmask = self.load_quick_resume()
             if bitmask:
+                if options.verbose > 5:
+                    logging.info('loaded quick resume %s, %s' % (self, bitmask))
                 return bitmask
         return self.create_bitmask()
 
@@ -367,7 +216,7 @@ class Torrent(object):
 
     @classmethod
     def instantiate(cls, infohash):
-        logging.info('instantiate torrent with hash %s' % infohash)
+        #logging.info('instantiate torrent with hash %s' % infohash)
         if infohash in cls.instances:
             instance = cls.instances[infohash]
         else:
@@ -387,7 +236,7 @@ class Torrent(object):
         return toreturn
 
     def update_meta(self, meta):
-        logging.info('update meta!')
+        #logging.info('update meta!')
         self.meta = meta
         self.meta_info = bencode.bencode(self.meta['info'])
         if self.is_multifile():
@@ -399,23 +248,93 @@ class Torrent(object):
         else:
             self._file_byte_accum = [0]
         self.bitmask = self.get_bitmask()
-        logging.info('self.bitmask is %s' % ''.join(map(str,self.bitmask)))
+        if options.verbose > 2:
+            logging.info('self.bitmask is %s' % ''.join(map(str,self.bitmask)))
         Torrent.Connection.notify_torrent_has_bitmask(self)
 
+    def set_attribute(self, key, value):
+        if key == 'status':
+            self._attributes[key] = value
+        else:
+            logging.error('unsupported set attribute on %s' % key)
+
+    def get_attribute(self, key):
+        if key == 'down_speed':
+            return self.bitcounter.recent()
+        elif key == 'progress':
+            if self.bitmask:
+                return (1000 * self.bitmask.count(1)) / len(self.bitmask)
+            else:
+                return 0
+        elif key == 'message':
+            return ''
+        elif key == 'status':
+            return self._attributes[key]
+        elif key == 'name':
+            if self.meta:
+                return self.meta['info']['name']
+            else:
+                return self.hash
+        elif key == 'size':
+            return self.get_size() if self.meta else None
+        elif key == 'downloaded':
+            if self.bitmask:
+                return self.bitmask.count(1) * self.get_piece_len()
+            else:
+                return 0
+        elif key == 'peers':
+            return len(self.connections)
+        else:
+            logging.error('unsupported attribute %s' % key)
+
+    def update_attributes(self, existing):
+        # update attributes that get pushed to sessions
+
+        add,remove = {},{}
+
+        for key in self.attribute_keys:
+
+            newval = self.get_attribute(key)
+            oldval = existing['properties']['all'][key]
+            existing['properties']['all'][key] = newval
+
+            if newval != oldval:
+                if 'properties' not in add: # or remove(redundant)
+                    add['properties'] = {'all':{}}
+                    remove['properties'] = {'all':{}}
+                add['properties']['all'][key] = newval
+                remove['properties']['all'][key] = oldval
+
+        return add, remove
+
     def __init__(self, infohash):
+        self.connections = []
+        self.bitcounter = BitCounter()
         self.hash = infohash
         self.pieces = {}
         self.files = {}
-        filename = MetaStorage.get(self.hash.upper())
+        self.bitmask = None
+        self._attributes = self._default_attributes.copy()
+
+        torrent_data = Settings.get(self.hash.upper())
+        if torrent_data:
+            if 'attributes' in torrent_data:
+                self._attributes.update( torrent_data['attributes'] )
+            filename = torrent_data['filename']
+        else:
+            filename = None
         if filename:
             meta = bencode.bdecode( open( os.path.join(options.datapath, filename) ).read() )
             self.update_meta( meta )
         else:
-            logging.warn('instantiated torrent that has no torrent registered in meta storage')
+            #logging.warn('instantiated torrent that has no torrent registered in meta storage')
             self.meta = None
             self.meta_info = None
             self.bitmask = None
             self._file_byte_accum = None
+
+    def started(self):
+        return self._attributes['status'] & 1
 
     def get_size(self, i=None):
         if 'files' in self.meta['info']:

@@ -100,8 +100,8 @@ class BitmaskHandler(BTMessageHandler):
         pieces_len = self.request.len
         self.request.connection._remote_bitmask = parse_bitmask(self.request.connection.torrent, self.request.payload)
         self.request.connection._remote_bitmask_incomplete = self.request.connection._remote_bitmask.count(0)
-
-        logging.info('remo.bitmask is %s' % ''.join(map(str,self.request.connection._remote_bitmask)))
+        if options.verbose > 2:
+            logging.info('remo.bitmask is %s' % ''.join(map(str,self.request.connection._remote_bitmask)))
 
         self.request.connection.send_bitmask()
         self.finish()
@@ -111,11 +111,13 @@ from constants import tor_meta_codes, tor_meta_codes_r, HANDSHAKE_CODE
 class UTHandler(BTMessageHandler):
     def handle(self):
         ext_msg_type = ord(self.request.payload[0])
-        logging.info('UTHandler - extension message type %s' % ext_msg_type)
+        if options.verbose > 2:
+            logging.info('UTHandler - extension message type %s' % ext_msg_type)
 
         if ext_msg_type == HANDSHAKE_CODE:
             info = bencode.bdecode(self.request.payload[1:])
-            logging.info('got extension data %s' % info)
+            if options.verbose > 1:
+                logging.info('got extension data %s' % info)
             # handshake
 
             self.request.connection._remote_extension_handshake = info
@@ -214,7 +216,8 @@ class HaveHandler(BTMessageHandler):
             if self.request.connection.torrent and self.request.connection.torrent.bitmask:
                 self.request.connection._remote_bitmask = [0] * len(self.request.connection.torrent.bitmask)
             else:
-                logging.error('they sent us a have but we dont have torrent meta !!')
+                pass
+                #logging.error('they sent us a have but we dont have torrent meta !!')
             # initialize an empty bitmask
 
         index = struct.unpack('>I', self.request.payload)[0]
@@ -222,7 +225,7 @@ class HaveHandler(BTMessageHandler):
 
         if not self.request.connection._remote_bitmask:
             self.request.connection._stored_haves.append(index)
-            logging.info('storing have message for later when we get torrent meta')
+            #logging.info('storing have message for later when we get torrent meta')
             self.finish()
             return
 
@@ -230,14 +233,15 @@ class HaveHandler(BTMessageHandler):
         slot = self.request.connection._remote_bitmask[index]
         self.request.connection._remote_bitmask[index] = 1
         self.request.connection._remote_bitmask_incomplete = self.request.connection._remote_bitmask.count(0)
-        logging.info('remote now has %s incomplete pieces' % self.request.connection._remote_bitmask_incomplete)
+        if options.verbose > 2:
+            logging.info('remote now has %s incomplete pieces' % self.request.connection._remote_bitmask_incomplete)
         #logging.info('changing slot from %s to %s' % (slot, 1))
         self.finish()
 
 class PortHandler(BTMessageHandler):
     def handle(self):
         port = struct.unpack('>H', self.request.payload)[0]
-        logging.warn('extension message got port %s' % port)
+        #logging.warn('extension message got port %s' % port)
         self.request.connection.dht_port = port
         self.args = [port]
         self.finish()
@@ -292,6 +296,7 @@ class PieceHandler(BTMessageHandler):
         conn = self.request.connection
 
         conn._piece_bytes_downloaded += len(data)
+        conn.torrent.bitcounter.record(len(data))
 
         #if conn._piece_request_outbound == 0:
         #    Connection.make_piece_request(conn)

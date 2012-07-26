@@ -68,6 +68,9 @@ from constants import HANDSHAKE_CODE
 class Connection(object):
     instances = []
 
+    def __repr__(self):
+        return '<Connection (t:%s, p:%s)>' % (self.torrent, self.address)
+
     @classmethod
     def initiate(cls, host, port, infohash):
         logging.info('initiating connection with %s,%s with hash %s' % (host, port, infohash))
@@ -76,19 +79,23 @@ class Connection(object):
                                           0, 0)
         af, socktype, proto, canonname, sockaddr = addrinfo[0]
         stream = IOStream(socket.socket(af, socktype, proto),
-                               io_loop=cls.io_loop)
-        stream.connect(sockaddr, functools.partial(cls.initiate_connected, stream, sockaddr, infohash))
-
-    @classmethod
-    def initiate_connected(cls, stream, sockaddr, infohash):
+                               io_loop=cls.ioloop)
         conn = cls(stream, sockaddr, cls.application, self_initiated=True)
+        stream.connect( sockaddr, functools.partial(cls.initiate_connected, conn, infohash) )
+        return conn
+        
+    @classmethod
+    def initiate_connected(cls, conn, infohash):
+        logging.info('connected to %s' % str(conn.address))
+        conn._connecting = False
         conn.infohash = binascii.unhexlify( infohash )
         conn.torrent = Torrent.instantiate( infohash )
+        conn.torrent.connections.append(conn)
         conn.send_handshake(infohash=infohash)
         conn.send_extension_handshake()
         if conn.torrent.meta:
             conn.send_bitmask()
-        conn._self_initiated = True
+        conn.when_connected()
 
     def send_extension_handshake(self):
         self._sent_extension_handshake = True
@@ -99,7 +106,8 @@ class Connection(object):
             data['metadata_size'] = len(self.torrent.meta_info)
         self._my_extension_handshake = data
         self._my_extension_handshake_codes = dict( (v,k) for k,v in data['m'].items() )
-        logging.info('sending ext message %s' % data)
+        if options.verbose > 1:
+            logging.info('sending ext message %s' % data)
         self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(data))
         self.send_dht_port()
 
@@ -135,73 +143,78 @@ class Connection(object):
                             if 'metadata_size' in conn._remote_extension_handshake:
                                 conn.request_metadata()
 
-    @classmethod
-    def make_piece_request(cls, instance=None):
+    def make_piece_request_me(self):
         #picks in-order
 
         piece_queue_limit = options.outbound_piece_limit
         piece_outbound_limit = options.outbound_piece_limit
 
+        conn = self
+
+        if not conn.torrent.started():
+            return
+
+        if not conn.torrent:
+            return
+
+        if conn.torrent.throttled():
+            #logging.info('conn throttled - exit')
+            return
+
+        if not conn.torrent or not conn.torrent.meta:
+            return
+
+        if conn.torrent._bitmask_incomplete_count == 0:
+            logging.debug('this torrent is finished. not making requests')
+            return
+
+        if conn.torrent.meta and conn._remote_bitmask:
+
+            cur_piece = None
+
+            while conn._active:
+
+                if conn._piece_request_queued >= piece_queue_limit:
+                    logging.info('not making more piece request -- piece queue limit reached')
+                    return
+                elif conn._piece_request_outbound >= piece_outbound_limit:
+                    logging.debug('not making more piece request -- piece outbound limit reached')
+                    return
+
+                if not cur_piece:
+                    cur_piece = conn.torrent.get_lowest_piece_can_that_can_make_request(conn)
+                    if cur_piece:
+                        if options.verbose > 1:
+                            logging.info('selected cur piece %s' % cur_piece)
+
+                if cur_piece:
+                    if not conn._am_interested and conn._am_choked:
+                        conn.send_message('INTERESTED')
+                        return
+                    else:
+                        data = cur_piece.make_request(conn)
+                        if data:
+                            if options.verbose > 2:
+                                logging.info('req %s from piece %s/%s' % (data, cur_piece.num, conn.torrent.get_num_pieces()))
+                            conn.send_message('REQUEST',
+                                          ''.join( (
+                                        struct.pack('>I',data[0]),
+                                        struct.pack('>I',data[1]),
+                                        struct.pack('>I',data[2]),
+                                        )))
+                        else:
+                            cur_piece = None
+
+
+
+    @classmethod
+    def make_piece_request(cls, instance=None):
         if not instance:
             iter = cls.instances
         else:
             iter = [instance]
-
         for conn in iter:
-            if not conn.torrent or not conn.torrent.meta:
-                break
-            
-            if conn.torrent._bitmask_incomplete_count == 0:
-                logging.debug('this torrent is finished. not making requests')
-                break
-
-            #if conn._remote_bitmask_incomplete == 0:
-            #    break
-
-            if conn.torrent.meta and conn._remote_bitmask:
-
-                cur_piece = None
-
-                while conn._active:
-
-                    if conn._piece_request_queued >= piece_queue_limit:
-                        logging.info('not making more piece request -- piece queue limit reached')
-                        break
-                    elif conn._piece_request_outbound >= piece_outbound_limit:
-                        logging.debug('not making more piece request -- piece outbound limit reached')
-                        break
-
-                    if not cur_piece:
-                        cur_piece = conn.torrent.get_lowest_piece_can_that_can_make_request(conn)
-                        if cur_piece:
-                            logging.info('selected cur piece %s' % cur_piece)
-
-                    if cur_piece:
-                        if not conn._am_interested and conn._am_choked:
-                            conn.send_message('INTERESTED')
-                            break
-                        else:
-                            data = cur_piece.make_request(conn)
-                            if data:
-                                conn.send_message('REQUEST',
-                                              ''.join( (
-                                            struct.pack('>I',data[0]),
-                                            struct.pack('>I',data[1]),
-                                            struct.pack('>I',data[2]),
-                                            )))
-                                #conn.enqueue_message( queue_data )
-                                #conn.send_message( *queue_data )
-                            else:
-                                cur_piece = None
-
-                    else:
-                        #logging.error("no piece that can make requests!")
-                        break
-                        #conn._active = False
-                        #conn.flushout_send_queue_and_say_not_interested()
-
-                #if not conn._request:
-                #conn.send_queue()
+            conn.make_piece_request_me()
 
     def enqueue_message(self, data):
         if data[0] == 'REQUEST':
@@ -287,7 +300,7 @@ class Connection(object):
 
         if payload == None:
             payload = ''
-        if log:
+        if log and options.verbose > 2:
             logging.info('Sending %s with len %s (o: %s)' % (type, len(payload), self._piece_request_outbound))
 
 
@@ -307,12 +320,21 @@ class Connection(object):
             #logging.warn('SENDING PIECE REQ! %s' % [data])
             self.send_message(message, payload)
 
-    def __init__(self, stream, address, request_callback, self_initiated=False):
+    def set_client(self, client):
+        # sets the controlling client
+        self.client = client
+
+    def shutdown(self, reason=None):
+        Connection.instances.remove(self)
+
+    def __init__(self, stream, address, request_callback, self_initiated=False, has_connected=False):
         Connection.instances.append( self )
         self._active = True
-
-
-        logging.info('initialized connection %s' % self)
+        self.client = None
+        self.address = None
+        self.peer = None
+        self.infohash = None
+        self.torrent = None
         self.request_callback = request_callback
         self._my_peerid = '-KY1111-' + constants.my_peer_id
         self._request = None
@@ -325,7 +347,7 @@ class Connection(object):
         self._sent_extension_handshake = False
         self._piece_bytes_uploaded = 0 # keeps track of how many payload piece request bytes we uploaded
         self._piece_bytes_downloaded = 0 # keeps track of how many payload piece request bytes we downloaded
-        self.torrent = None
+
         self._sent_bitmask = False
         self._piece_request_queued = 0
         self._piece_request_outbound = 0
@@ -345,31 +367,42 @@ class Connection(object):
 
         self._request_finished = False
         self.stream = stream
+        self.stream._has_connected = has_connected
         self.stream.set_close_callback(self.on_connection_close)
         if self.stream.socket.family not in (socket.AF_INET, socket.AF_INET6):
             # Unix (or other) socket; fake the remote address
             address = ('0.0.0.0', 0)
         self.address = address
-        self.stream.read_bytes(constants.handshake_length, self.got_handshake)
+        if self.stream._has_connected:
+            self.when_connected()
 
+    def when_connected(self):
+        try:
+            self.stream.read_bytes(constants.handshake_length, self.got_handshake)
+        except IOError:
+            logging.warn('failed reading handshake (hopefully on_connection_close is called)')
+            pass
 
     def on_connection_close(self):
         # remove piece timeouts...
         if self.torrent:
             self.torrent.cleanup_old_requests(self, -1)
+            self.torrent.connections.remove(self)
         self._active = False
         Connection.instances.remove(self)
 
         logging.warn('closed peer connection %s' % [self.address, self.torrent.hash[:6] + '..' if self.torrent else None])
-        complete_upload = self._piece_bytes_uploaded >= self.torrent.get_size()
-        complete_download = self._piece_bytes_downloaded >= self.torrent.get_size()
-        logging.info('finished %s, %s/%s piece bytes uploaded, %s/%s downloaded' % ((complete_upload or complete_download), 
-                                                                                    self._piece_bytes_uploaded, self.torrent.get_size(),
-                                                                                    self._piece_bytes_downloaded, self.torrent.get_size()
-                                                                                    ))
+        if self.torrent and self.torrent.meta:
+            complete_upload = self._piece_bytes_uploaded >= self.torrent.get_size()
+            complete_download = self._piece_bytes_downloaded >= self.torrent.get_size()
+            logging.info('finished %s, %s/%s piece bytes uploaded, %s/%s downloaded' % ((complete_upload or complete_download), 
+                                                                                        self._piece_bytes_uploaded, self.torrent.get_size(),
+                                                                                        self._piece_bytes_downloaded, self.torrent.get_size()
+                                                                                        ))
         if options.startup_exit_on_close:
             sys.exit(0 if (complete_upload or complete_download) else 1)
-
+        if self.torrent.meta and self.torrent.get_attribute('downloaded') < self.torrent.get_attribute('size'):
+            logging.warn('should reconnect!')
 
     def get_more_messages(self):
         if not self.stream.closed():
@@ -382,7 +415,7 @@ class Connection(object):
             infohash = self.infohash
         else:
             infohash = binascii.unhexlify(infohash)
-        logging.info('sending handshake with infohash %s' % binascii.hexlify(infohash))
+        #logging.info('sending handshake with infohash %s' % binascii.hexlify(infohash))
         towrite = ''.join((chr(len(constants.protocol_name)),
                            constants.protocol_name,
                            ''.join(constants.handshake_flags),
@@ -396,15 +429,18 @@ class Connection(object):
         #pass
 
     def got_handshake(self, data):
-        logging.info('got handshake %s' % [data])
+        if options.verbose > 2:
+            logging.info('got handshake %s' % [data])
         self.handshake = parse_handshake(data)
-        logging.info('parsed handshake %s' % [self.handshake])
-        self.peerid = self.handshake['peerid']
-        self.peer = Peer.instantiate(self.peerid)
+        if options.verbose > 1:
+            logging.info('parsed handshake %s' % [self.handshake])
         if self.handshake:
+            self.peerid = self.handshake['peerid']
+            self.peer = Peer.instantiate(self.peerid)
             self.infohash = self.handshake['infohash']
             if not self.torrent:
                 self.torrent = Torrent.instantiate( binascii.hexlify(self.handshake['infohash']) )
+                self.torrent.connections.append(self)
                 logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
                 if not self._sent_handshake:
                     self.send_handshake()
@@ -515,18 +551,23 @@ class Connection(object):
         self._request = None
         self._request_finished = False
 
-        #logging.info('FINISH REQ')
-
         if req.no_keep_alive:
             logging.info('closing stream')
             req.connection.stream.close()
         else:
-            if self._am_interested and not self._am_choked and self._piece_request_outbound == 0:
+            self.tick()
+
+    def tick(self):
+        if self._am_interested and not self._am_choked and self._piece_request_outbound == 0:
+
+            if self.torrent.throttled():
+                #logging.info('throttled! going again in a bit')
+                self.ioloop.add_timeout( time.time() + .5, self.tick )
+                return
+            else:
                 Connection.make_piece_request(self)
 
-            #if self.torrent and self.torrent.meta and not self._sent_bitmask:
-            #    self.send_bitmask()
-
-            self.get_more_messages()
+        self.get_more_messages()
+        
 
 Torrent.Connection = Connection
