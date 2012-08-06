@@ -7,6 +7,24 @@ import logging
 class Piece(object):
     std_size = 2**14
 
+    @classmethod
+    def get_spanning(cls, torrent, start_byte, end_byte):
+        # gets all pieces that contain start_byte, end_byte
+        pieces = []
+        for n,piece in torrent.pieces.iteritems():
+            # better yet, do two ended binary search ...
+            if piece.end_byte < start_byte:
+                continue
+            elif piece.start_byte > end_byte:
+                break
+            else:
+                pieces.append(piece)
+        return pieces
+
+    def add_listening_handler(self, handler):
+        # registers that a handler is waiting for this piece to finish
+        self.listeners.append(handler)
+
     def cleanup_old_requests(self, conn, t):
         # purges old piece requests that never got responses
         todelete = []
@@ -20,8 +38,22 @@ class Piece(object):
             del self.queue_data[data]
             self.queue.remove(data)
 
+    def complete(self):
+        return self.torrent.bitmask[self.num] == 1
+
+    def on_complete(self):
+        # called when piece is complete
+        #logging.info('%s complete!' % self)
+        for listener in self.listeners:
+            listener.handle_piece_complete(self)
+        self.listeners = []
+
+    def __repr__(self):
+        return '<Piece %s/%s>' % (self.num+1,self.torrent.get_num_pieces())
+
     def __init__(self, torrent, num):
         self.torrent = torrent
+        self.listeners = []
         self.num = num
         self.sz = self.torrent.get_piece_len(self.num)
         self.start_byte = self.torrent.get_piece_len() * self.num

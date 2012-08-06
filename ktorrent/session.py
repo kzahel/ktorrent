@@ -36,47 +36,53 @@ class Session(object):
     def compute_changes(self):
         add = {}
         remove = {}
-        for hash, torrent in self.client.torrents.iteritems():
 
-            if hash not in self.state['btapp']['torrent']['all']:
-                dump = torrent.dump_state()
-                if 'btapp' in add:
-                    add['btapp']['torrent']['all'][hash] = dump
+        if len(self.client.torrents) > 0:
+
+            if 'torrent' not in self.state['btapp']:
+                self.state['btapp']['torrent'] = {'all':{}}
+
+            for hash, torrent in self.client.torrents.iteritems():
+
+                if hash not in self.state['btapp']['torrent']['all']:
+                    dump = torrent.dump_state()
+                    if 'btapp' in add:
+                        add['btapp']['torrent']['all'][hash] = dump
+                    else:
+                        add['btapp'] = {'torrent':{'all':{hash:dump}}}
+                    self.state['btapp']['torrent']['all'][hash] = dump
                 else:
-                    add['btapp'] = {'torrent':{'all':{hash:dump}}}
-                self.state['btapp']['torrent']['all'][hash] = dump
-            else:
-                a, r = torrent.update_attributes(self.state['btapp']['torrent']['all'][hash])
-                if a and r:
-                    if options.verbose > 2:
-                        logging.info('tor update attr ret %s %s' % (a,r))
-                    if 'btapp' not in add:
-                        add['btapp'] = {'torrent':{'all':{}}}
+                    a, r = torrent.update_attributes(self.state['btapp']['torrent']['all'][hash])
+                    if a:
+                        if 'btapp' not in add:
+                            add['btapp'] = {'torrent':{'all':{}}}
+                        add['btapp']['torrent']['all'][hash] = a
+                    if r:
+                        if 'btapp' not in remove:
+                            remove['btapp'] = {'torrent':{'all':{}}}
+                        remove['btapp']['torrent']['all'][hash] = r
+
+            toremove = []
+            for hash in self.state['btapp']['torrent']['all']:
+                if hash not in self.client.torrents:
+                    if 'btapp' not in remove:
                         remove['btapp'] = {'torrent':{'all':{}}}
 
-                    add['btapp']['torrent']['all'][hash] = a
-                    remove['btapp']['torrent']['all'][hash] = r
-
-        toremove = []
-        for hash in self.state['btapp']['torrent']['all']:
-            if hash not in self.client.torrents:
-                if 'btapp' not in remove:
-                    remove['btapp'] = {'torrent':{'all':{}}}
-
-                # torrent was removed
-                remove['btapp']['torrent']['all'][hash] = self.state['btapp']['torrent']['all'][hash]
-                toremove.append(hash)
-        for hash in toremove:
-            del self.state['btapp']['torrent']['all'][hash]
+                    # torrent was removed
+                    remove['btapp']['torrent']['all'][hash] = self.state['btapp']['torrent']['all'][hash]
+                    toremove.append(hash)
+            for hash in toremove:
+                del self.state['btapp']['torrent']['all'][hash]
 
         return add, remove
 
     def populate(self):
-        self.state = {'btapp':{'torrent':{'all':{}},
-                               'add':{'torrent':"[nf](string)(string,string)"}
-                               }}
-        for hash,torrent in self.client.torrents.iteritems():
-            self.state['btapp']['torrent']['all'][hash] = torrent.dump_state()
+        self.state = {'btapp':{'add':{'torrent':"[nf](string)(string,string)"}}}
+
+        if len(self.client.torrents) > 0:
+            self.state['btapp']['torrent'] = {'all':{}}
+            for hash,torrent in self.client.torrents.iteritems():
+                self.state['btapp']['torrent']['all'][hash] = torrent.dump_state()
         return self.state
 
     def process_changes(self, changes):
@@ -120,9 +126,9 @@ class Session(object):
                 if command == 'remove':
                     self.client.remove_torrent( hash )
                 elif command == 'stop':
-                    torrent.set_attribute('status', 0)
+                    torrent.stop()
                 elif command == 'start':
-                    torrent.set_attribute('status', 1)
+                    torrent.start()
                 else:
                     logging.error('unhandled torrent command %s' % command)
                     return {'error':'unhandled torrent function'}

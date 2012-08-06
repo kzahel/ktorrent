@@ -75,6 +75,7 @@ class Client(object):
 
     @classmethod
     def resume(cls):
+        Settings.load()
         clients = Settings.get('clients')
         if clients:
             cls.instances = [cls(d) for d in clients]
@@ -83,10 +84,14 @@ class Client(object):
 
     @classmethod
     def save_settings(cls):
-        Torrent.save_quick_resume()
+        for h,t in Torrent.instances.iteritems():
+            t.save_quick_resume()
+            t.save_attributes()
+
         d = [{'torrents': [str(hash) for hash in c.torrents],
               'id': c.id} for c in cls.instances]
         Settings.set('clients',d)
+        Settings.flush()
 
     def __init__(self, data=None):
         self.torrents = {}
@@ -95,6 +100,9 @@ class Client(object):
             self.id = data['id']
             if 'torrents' in data:
                 self.torrents = dict( (t,Torrent.instantiate(t)) for t in data['torrents'] )
+                for hash,t in self.torrents.iteritems():
+                    t.get_bitmask(force_create=False) # force a load of metadata from .torrent files
+                    #t.load_attributes() # done in the init
         else:
             self.id = str(uuid4()).split('-')[0]
 

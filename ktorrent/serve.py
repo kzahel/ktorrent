@@ -36,8 +36,6 @@ define('piece_request_timeout',default=10, type=int)
 tornado.options.parse_command_line()
 settings = dict( (k, v.value()) for k,v in options.items() )
 
-from util import MetaStorage
-MetaStorage.sync()
 from tornado.autoreload import add_reload_hook
 import signal
 import sys
@@ -103,13 +101,14 @@ routes = { 'BITFIELD': BitmaskHandler,
            'PIECE': PieceHandler
            }
 
-from frontend import IndexHandler, StatusHandler, APIHandler, PingHandler, VersionHandler, BtappHandler, PairHandler, request_logger
+from frontend import IndexHandler, StatusHandler, APIHandler, PingHandler, VersionHandler, BtappHandler, PairHandler, request_logger, ProxyHandler
 
 frontend_routes = [
     ('/?', IndexHandler),
     ('/static/.?', tornado.web.StaticFileHandler),
     ('/gui/pingimg', PingHandler),
     ('/gui/pair/?', PairHandler),
+    ('/proxy/?', ProxyHandler),
     ('/version/?', VersionHandler),
     ('/statusv2/?', StatusHandler),
     ('/api', APIHandler),
@@ -197,4 +196,5 @@ if options.startup_connect_to:
     ioloop.add_timeout( time.time() + 1, fn )
     #client.connect(host,port,startuphash)
 
+Torrent.client = client
 ioloop.start()

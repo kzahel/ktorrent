@@ -24,16 +24,19 @@ class Torrent(object):
     persist_keys = ['upload_limit','status','queue_position'] # store in the settings
     #bits: ['started', 'checking', 'start after check', 'checked', 'error', 'paused', 'queued', 'loaded']
 
-    _default_attributes = {'status':0, 'queue_position':None, 'upload_limit':0} # persist this...
+    _default_attributes = {'status':0, 'queue_position':-1, 'upload_limit':0} # persist this...
 
     def __repr__(self):
         return '<Torrent %s (meta:%s, %s)>' % (self.hash, True if self.meta else False, self.get_summary())
 
     def throttled(self):
+        return False
         return self.bitcounter.recent() > self.max_dl_rate()
 
     def max_dl_rate(self):
-        return 16384 * 2
+        return 8192
+        #return 16384 * 2
+        #return 16384 * 1024
 
     def recheck(self):
         # re-checks all pieces
@@ -43,6 +46,12 @@ class Torrent(object):
         # just checks files existing and file sizes
         pass
 
+    def start(self):
+        self.set_attribute('status', 1)
+
+    def stop(self):
+        self.set_attribute('status', 0)
+
     def dump_state(self):
         data =  {'stop': "[nf]()",
                  'start': "[nf]()",
@@ -51,15 +60,15 @@ class Torrent(object):
                  'add_peer':"[nf](string)(dispatch)",
                  'hash':self.hash,
                  'properties':{'all':self.get_attributes()}}
-        #if self.meta:
-        #    data['file'] = self.dump_file_state()
+        if self.meta:
+            data['file'] = self.dump_file_state()
         return data
 
     def dump_file_state(self):
-        # never stored off files?
         d = {}
-        for filenum in self.files:
-            pass
+        for i in range(self.get_num_files()):
+            file = self.get_file(i)
+            d.update( file.dump_state() )
         return d
 
     def get_attributes(self):
@@ -72,39 +81,65 @@ class Torrent(object):
         else:
             return 'no bitmask'
 
-    def load_quick_resume(self):
-        resume_data = Settings.get()
-        if resume_data and self.hash in resume_data:
-            if 'bitmask' in resume_data[self.hash]:
-                #logging.info('restored bitmask to %s' % self)
-                bitmask = resume_data[self.hash]['bitmask']
-                self._bitmask_incomplete_count = bitmask.count(0)
-                return bitmask
-    
-    @classmethod
-    def save_quick_resume(cls):
-        #saves computed infohashes on shutdown
-        if os.path.exists( options.resume_file ):
-            fo = open(options.resume_file)
-            data = bencode.bdecode( fo.read() )
+    def save_metadata(self):
+        torrent_meta = self.meta
+        filename = torrent_meta['info']['name'] + '.torrent'
+        key = self.hash.upper()
+        Settings.set(['torrents',key,'filename'],filename)
+
+        fo = open( os.path.join(options.datapath, filename), 'w')
+        fo.write( bencode.bencode(torrent_meta) )
+        fo.close()
+
+    def load_metadata(self):
+        try:
+            filename = Settings.get(['torrents',self.hash,'filename'])
+        except KeyError:
+            return
+
+        filepath = os.path.join(options.datapath, filename)
+        if os.path.exists(filepath):
+            fo = open( filepath )
+            data = fo.read()
+            self.meta = bencode.bdecode( data )
             fo.close()
         else:
-            data = {}
-        logging.warn('save quick resume race condition with filename')
-        for k,torrent in cls.instances.iteritems():
-            if torrent.bitmask:
-                newdata = { 'bitmask' : torrent.bitmask }
-                if torrent.hash in data:
-                    curdata = data[torrent.hash]
-                    data[torrent.hash].update(newdata)
-                else:
-                    data[torrent.hash] = newdata
+            logging.error('%s missing on disk' % filepath)
 
-        fo = open(options.resume_file,'w')
-        fo.write( bencode.bencode( data ) )
-        if options.verbose > 3:
-            logging.info('write settings %s' % data)
-        fo.close()
+    def load_quick_resume(self):
+        try:
+            return self.decode_bitmask(Settings.get(['torrents',self.hash,'bitmask']))
+        except:
+            pass
+
+    def save_quick_resume(self):
+        if self.bitmask:
+            Settings.set(['torrents',self.hash,'bitmask'], self.encode_bitmask(self.bitmask))
+
+    def encode_bitmask(self, arr):
+        # to reduce size of settings file ...
+        # encodes bitmask into bytes
+        return arr
+
+    def decode_bitmask(self, bytes):
+        # decodes from bytes to array of 0,1's
+        return bytes
+
+    def save_attributes(self):
+        saveattrs = {}
+        for k in self._attributes:
+            if self._attributes[k] != self._default_attributes[k]:
+                saveattrs[k] = self._attributes[k]
+        if saveattrs:
+            Settings.set(['torrents',self.hash,'attributes'], saveattrs)
+
+    def load_attributes(self):
+        try:
+            attributes = Settings.get(['torrents',self.hash,'attributes'])
+            self._attributes.update( attributes )
+        except:
+            pass
+            
 
     def cleanup_old_requests(self, conn, t=None):
         if t is None: t = time.time()
@@ -134,19 +169,54 @@ class Torrent(object):
             torrent_finished = True
             return torrent_finished
 
+    def register_pieces_requested(self, request_data):
+        #logging.info('%s register pieces requested %s' % (self, request_data))
+        self.piece_consumers.append(request_data)
+        for piece in request_data['pieces']:
+            piece.add_listening_handler(request_data['handler'])
+
+    def unregister_pieces_requested(self, request_data):
+        self.piece_consumers.remove(request_data)
+
+    def get_high_priority_piece(self):
+        toreturn = None
+        toremove_consumers = []
+        for piece_consumer in self.piece_consumers:
+            toremove_pieces = []
+            pieces = piece_consumer['pieces']
+            if not pieces:
+                toremove_consumers.append( piece_consumer )
+                # remove this piece consumer and mark as done
+                #logging.warn('remove this piece consumer')
+                #piece_consumer['handler'].notify_all_pieces_complete() # wrong place, not necessary
+            for piece in pieces:
+                if piece.complete():
+                    toremove_pieces.append(piece)
+                else:
+                    toreturn = piece
+                    break
+            for piece in toremove_pieces:
+                pieces.remove(piece)
+            if toreturn:
+                break
+
+        for piece_consumer in toremove_consumers:
+            self.piece_consumers.remove(piece_consumer)
+
+        return toreturn
+
     def get_lowest_piece_can_that_can_make_request(self, conn):
         start = 0
-        try:
-            while start < len(self.bitmask):
+        while start < len(self.bitmask):
+            try:
                 i = self.bitmask.index(0, start)
-                if conn._remote_bitmask[i] == 1:
-                    piece = self.get_piece( i )
-                    if piece.make_request(conn, peek=True):
-                        return piece
-                
-                start = i+1
-        except:
-            logging.error('error selecting piece (bad try block...)')
+            except ValueError:
+                break
+            if conn._remote_bitmask[i] == 1:
+                piece = self.get_piece( i )
+                if piece.make_request(conn, peek=True):
+                    return piece
+            start = i+1
 
     def get_lowest_incomplete_piece(self):
         try:
@@ -181,15 +251,17 @@ class Torrent(object):
     def get_num_pieces(self):
         return len(self.meta['info']['pieces'])/20
 
-    def get_bitmask(self, resume=True):
-        # retrieves bitmask from the resume.dat or creates it
+    def get_bitmask(self, resume=True, force_create=True):
+        # retrieves bitmask from the resume.dat or creates it#aoeu
         if resume:
             bitmask = self.load_quick_resume()
             if bitmask:
+                self._bitmask_incomplete_count = bitmask.count(0)
                 if options.verbose > 5:
                     logging.info('loaded quick resume %s, %s' % (self, bitmask))
                 return bitmask
-        return self.create_bitmask()
+        if force_create:
+            return self.create_bitmask()
 
     def create_bitmask(self):
         bitmask = []
@@ -235,6 +307,15 @@ class Torrent(object):
                           piecedata ) )
         return toreturn
 
+    def ensure_stream_id(self):
+        try:
+            self.sid = Settings.get(['torrents',self.hash,'sid'])
+        except:
+            chars = map(str,range(10)) + list('abcdef')
+            sid = ''.join( [random.choice( chars ) for _ in range(5)] )
+            Settings.set(['torrents',self.hash,'sid'], sid)
+            self.sid = sid
+
     def update_meta(self, meta):
         #logging.info('update meta!')
         self.meta = meta
@@ -250,6 +331,8 @@ class Torrent(object):
         self.bitmask = self.get_bitmask()
         if options.verbose > 2:
             logging.info('self.bitmask is %s' % ''.join(map(str,self.bitmask)))
+        for i in range(self.get_num_pieces()):
+            self.get_piece(i) # force populate (for Piece spanning file progress computation)
         Torrent.Connection.notify_torrent_has_bitmask(self)
 
     def set_attribute(self, key, value):
@@ -311,27 +394,22 @@ class Torrent(object):
         self.connections = []
         self.bitcounter = BitCounter()
         self.hash = infohash
-        self.pieces = {}
-        self.files = {}
+        self.piece_consumers = []
+        self.pieces = {} # lazy populate on get_piece
+        self.files = {} # lazy populate on get_file
         self.bitmask = None
         self._attributes = self._default_attributes.copy()
+        self.meta = None
+        self.meta_info = None
+        self.bitmask = None
+        self._file_byte_accum = None
+        self.load_attributes()
+        self.load_metadata()
+        # also creates a stream id for settings, if none created yet.
+        self.ensure_stream_id()
+        if self.meta:
+            self.update_meta(self.meta)
 
-        torrent_data = Settings.get(self.hash.upper())
-        if torrent_data:
-            if 'attributes' in torrent_data:
-                self._attributes.update( torrent_data['attributes'] )
-            filename = torrent_data['filename']
-        else:
-            filename = None
-        if filename:
-            meta = bencode.bdecode( open( os.path.join(options.datapath, filename) ).read() )
-            self.update_meta( meta )
-        else:
-            #logging.warn('instantiated torrent that has no torrent registered in meta storage')
-            self.meta = None
-            self.meta_info = None
-            self.bitmask = None
-            self._file_byte_accum = None
 
     def started(self):
         return self._attributes['status'] & 1

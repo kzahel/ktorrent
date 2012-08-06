@@ -292,7 +292,8 @@ class PieceHandler(BTMessageHandler):
         offset = struct.unpack('>I', self.request.payload[4:8])[0]
         self.request.args = [index, offset, '...']
         data = self.request.payload[8:]
-        tor_finished, piece_finished = self.request.connection.torrent.get_piece(index).handle_peer_response(self, offset, data)
+        piece = self.request.connection.torrent.get_piece(index)
+        tor_finished, piece_finished = piece.handle_peer_response(self, offset, data)
         conn = self.request.connection
 
         conn._piece_bytes_downloaded += len(data)
@@ -309,6 +310,7 @@ class PieceHandler(BTMessageHandler):
             # finished this piece
             #self.enqueue_message('HAVE', struct.pack('>I', index))
             conns = Connection.get_by_hash(self.request.connection.torrent.hash)
+            piece.on_complete()
             for conn in conns:
                 conn.send_message('HAVE', struct.pack('>I', index))
         if False:

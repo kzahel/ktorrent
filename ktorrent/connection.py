@@ -143,68 +143,6 @@ class Connection(object):
                             if 'metadata_size' in conn._remote_extension_handshake:
                                 conn.request_metadata()
 
-    def make_piece_request_me(self):
-        #picks in-order
-
-        piece_queue_limit = options.outbound_piece_limit
-        piece_outbound_limit = options.outbound_piece_limit
-
-        conn = self
-
-        if not conn.torrent.started():
-            return
-
-        if not conn.torrent:
-            return
-
-        if conn.torrent.throttled():
-            #logging.info('conn throttled - exit')
-            return
-
-        if not conn.torrent or not conn.torrent.meta:
-            return
-
-        if conn.torrent._bitmask_incomplete_count == 0:
-            logging.debug('this torrent is finished. not making requests')
-            return
-
-        if conn.torrent.meta and conn._remote_bitmask:
-
-            cur_piece = None
-
-            while conn._active:
-
-                if conn._piece_request_queued >= piece_queue_limit:
-                    logging.info('not making more piece request -- piece queue limit reached')
-                    return
-                elif conn._piece_request_outbound >= piece_outbound_limit:
-                    logging.debug('not making more piece request -- piece outbound limit reached')
-                    return
-
-                if not cur_piece:
-                    cur_piece = conn.torrent.get_lowest_piece_can_that_can_make_request(conn)
-                    if cur_piece:
-                        if options.verbose > 1:
-                            logging.info('selected cur piece %s' % cur_piece)
-
-                if cur_piece:
-                    if not conn._am_interested and conn._am_choked:
-                        conn.send_message('INTERESTED')
-                        return
-                    else:
-                        data = cur_piece.make_request(conn)
-                        if data:
-                            if options.verbose > 2:
-                                logging.info('req %s from piece %s/%s' % (data, cur_piece.num, conn.torrent.get_num_pieces()))
-                            conn.send_message('REQUEST',
-                                          ''.join( (
-                                        struct.pack('>I',data[0]),
-                                        struct.pack('>I',data[1]),
-                                        struct.pack('>I',data[2]),
-                                        )))
-                        else:
-                            cur_piece = None
-
 
 
     @classmethod
@@ -262,8 +200,7 @@ class Connection(object):
             logging.info('received infohash is %s' % [infohash])
             torrent_meta = bencode.bdecode(torrent_data)
             self.torrent.update_meta( { 'info': torrent_meta } )
-            MetaStorage.insert( self.torrent )
-
+            self.torrent.save_metadata()
             self.post_metadata_received()
 
     def post_metadata_received(self):
@@ -401,7 +338,7 @@ class Connection(object):
                                                                                         ))
         if options.startup_exit_on_close:
             sys.exit(0 if (complete_upload or complete_download) else 1)
-        if self.torrent.meta and self.torrent.get_attribute('downloaded') < self.torrent.get_attribute('size'):
+        if self.torrent and self.torrent.meta and self.torrent.get_attribute('downloaded') < self.torrent.get_attribute('size'):
             logging.warn('should reconnect!')
 
     def get_more_messages(self):
@@ -566,8 +503,84 @@ class Connection(object):
                 return
             else:
                 Connection.make_piece_request(self)
-
         self.get_more_messages()
-        
 
+    def make_piece_request_me(self):
+        #picks in-order
+
+        piece_queue_limit = options.outbound_piece_limit
+        piece_outbound_limit = options.outbound_piece_limit
+
+        conn = self
+        torrent = conn.torrent
+
+        if not torrent:
+            return
+
+        if not torrent.started():
+            return
+
+        if torrent.throttled():
+            #logging.info('conn throttled - exit')
+            return
+
+        if not torrent or not torrent.meta:
+            return
+
+        if torrent._bitmask_incomplete_count == 0:
+            logging.debug('this torrent is finished. not making requests')
+            return
+
+        if torrent.meta and conn._remote_bitmask:
+
+            last_cur_piece = None # test that this is working as intended
+            cur_piece = None
+
+            while conn._active: # todo --- fix this it dangerously goes into tight infinite loops
+                if conn._piece_request_queued >= piece_queue_limit:
+                    logging.info('not making more piece request -- piece queue limit reached')
+                    return
+                elif conn._piece_request_outbound >= piece_outbound_limit:
+                    logging.debug('not making more piece request -- piece outbound limit reached')
+                    return
+
+                if not cur_piece:
+                    cur_piece = torrent.get_high_priority_piece()
+                    if not cur_piece:
+                        cur_piece = torrent.get_lowest_piece_can_that_can_make_request(conn)
+                        if cur_piece:
+                            if options.verbose > 1:
+                                logging.info('selected cur piece %s' % cur_piece)
+                        else:
+                            break
+                    else:
+                        if options.verbose > 1:
+                            logging.info('selected special high priority piece %s' % cur_piece)
+
+                if cur_piece:
+                    if not conn._am_interested and conn._am_choked:
+                        conn.send_message('INTERESTED')
+                        return
+                    else:
+                        data = cur_piece.make_request(conn)
+                        if data:
+                            if options.verbose > 2:
+                                logging.info('req %s from piece %s/%s' % (data, cur_piece.num, torrent.get_num_pieces()))
+                            conn.send_message('REQUEST',
+                                          ''.join( (
+                                        struct.pack('>I',data[0]),
+                                        struct.pack('>I',data[1]),
+                                        struct.pack('>I',data[2]),
+                                        )))
+                        else:
+                            if last_cur_piece == cur_piece:
+                                break
+                            last_cur_piece = cur_piece
+                            cur_piece = None
+                            # if cur piece is last cur piece, break (working on last piece and in tight loop)
+
+
+
+        
+# weird hack to avoid circular import, but give classes access to each other
 Torrent.Connection = Connection

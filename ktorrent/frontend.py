@@ -13,6 +13,8 @@ import pdb
 import sys
 from tornado.options import options
 
+from proxytorrent import ProxyTorrent
+
 class BaseHandler(tornado.web.RequestHandler):
     def writeout(self, args):
         if 'callback' in self.request.arguments:
@@ -24,7 +26,7 @@ class BaseHandler(tornado.web.RequestHandler):
 
 class IndexHandler(BaseHandler):
     def get(self):
-        pass
+        pass###
 
 class StatusHandler(BaseHandler):
     def get(self):
@@ -33,7 +35,7 @@ class StatusHandler(BaseHandler):
         attrs.update( dict( 
                 clients = [ (c, c.torrents) for c in Client.instances ],
                 connections = Connection.instances,
-                torrents = dict( (h, {'torrent':t, 'conns':t.connections}) for h,t in Torrent.instances.iteritems() ),
+                torrents = dict( (h, {'torrent':t, 'conns':t.connections,'attrs':t._attributes}) for h,t in Torrent.instances.iteritems() ),
                 peers = Peer.instances.values()
                             ) )
         def custom(obj):
@@ -132,6 +134,29 @@ class PingHandler(BaseHandler):
     def get(self):
         self.set_header('Content-Type','image/x-ms-bmp')
         self.write( ''.join(map(chr,PingHandler.image)) )
+
+
+class ProxyHandler(BaseHandler):
+    @tornado.web.asynchronous
+    def get(self):
+        client = Client.instances[0]
+        sid = self.get_argument('sid')
+        file = int(self.get_argument('file'))
+
+        torrent = None
+        for hash, t in client.torrents.iteritems():
+            if t.sid == sid:
+                torrent = t
+                break
+
+        if torrent:
+            file = torrent.get_file(file)
+            ProxyTorrent.register( file, self )
+            # self.write('found torrent %s' % torrent)
+        else:
+            self.write('torrent not found')
+        
+
 
 
 class APIHandler(BaseHandler):
