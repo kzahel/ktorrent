@@ -97,6 +97,13 @@ class Connection(object):
             conn.send_bitmask()
         conn.when_connected()
 
+    @classmethod
+    def adopt_websocket(cls, handler):
+        # create a connection that uses a websocket stream
+        conn = cls(handler.stream_adapter, (), cls.application)
+        conn.when_connected()
+        return conn
+
     def send_extension_handshake(self):
         self._sent_extension_handshake = True
         data = {'v': 'ktorrent 0.01',
@@ -185,7 +192,7 @@ class Connection(object):
             self.send_message('UTORRENT_MSG', chr(self._remote_extension_handshake['m']['ut_metadata']) + bencode.bencode(msg))
 
     def insert_meta_piece(self, piece, data):
-        logging.info('insert meta piece %s!' % len(data))
+        logging.info('insert meta piece %s of len %s!' % (piece, len(data)))
         self._meta_pieces[piece] = data
         sz = self._remote_extension_handshake['metadata_size']
         chunksz = 2**14
@@ -197,9 +204,25 @@ class Connection(object):
                 alldata.append( self._meta_pieces[i] )
             torrent_data = ''.join(alldata)
             infohash = sha1(torrent_data).digest()
-            logging.info('received infohash is %s' % [infohash])
+            # if they don't match? what do we do???
+
             torrent_meta = bencode.bdecode(torrent_data)
-            self.torrent.update_meta( { 'info': torrent_meta } )
+            connection_hash = self.torrent.hash
+            self.torrent.update_meta( { 'info': torrent_meta }, update=True )
+            if binascii.hexlify(infohash).lower() != connection_hash.lower():
+                logging.warn('received metadata does not correspond to connection infohash!')
+                if 'althash' in self.torrent.meta['info']:
+                    althash = self.torrent.meta['info']['althash']
+                    althash_hex = binascii.hexlify(althash)
+                    logging.info('received metadata has althash %s' % [althash_hex])
+                    if althash_hex.lower() == connection_hash.lower():
+                        logging.info('GREAT! althash matches the connection hash though! proceeding!')
+                else:
+                    logging.error('received metadata has no althash')
+                    raise Exception('received metadata has no althash')
+
+
+            # check that it corresponds to this connection!
             self.torrent.save_metadata()
             self.post_metadata_received()
 
@@ -306,7 +329,7 @@ class Connection(object):
         self.stream = stream
         self.stream._has_connected = has_connected
         self.stream.set_close_callback(self.on_connection_close)
-        if self.stream.socket.family not in (socket.AF_INET, socket.AF_INET6):
+        if not hasattr(self.stream,'socket') or self.stream.socket.family not in (socket.AF_INET, socket.AF_INET6):
             # Unix (or other) socket; fake the remote address
             address = ('0.0.0.0', 0)
         self.address = address
@@ -315,6 +338,7 @@ class Connection(object):
 
     def when_connected(self):
         try:
+            logging.info('attempting read of len %s' % constants.handshake_length)
             self.stream.read_bytes(constants.handshake_length, self.got_handshake)
         except IOError:
             logging.warn('failed reading handshake (hopefully on_connection_close is called)')
@@ -381,6 +405,8 @@ class Connection(object):
                 logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
                 if not self._sent_handshake:
                     self.send_handshake()
+                if not self._sent_extension_handshake:
+                    self.send_extension_handshake()
                 if self.torrent and self.torrent.meta:
                     self.send_bitmask()
                 self.get_more_messages()
@@ -394,13 +420,17 @@ class Connection(object):
         #logging.info('new data to buffer %s' % len(self.stream._read_buffer))
         pass
 
+    def new_websocket_message(self, data):
+        self.new_message(data)
+
     def new_message(self, data):
         self.message_len = struct.unpack('>I', data[:4])[0] - 1
         self.stream._buffer_grown_callback = self._any_new_data
         msgval = ord(data[4])
         if msgval not in constants.message_dict:
             logging.error('message type not recognized')
-            pdb.set_trace()
+            if options.asserts:
+                pdb.set_trace()
         self.msgtype = constants.message_dict[ msgval ]
         #logging.info('new message %s' % [data, self.message_len, self.msgtype])
         if self.message_len > 0:
@@ -507,7 +537,6 @@ class Connection(object):
 
     def make_piece_request_me(self):
         #picks in-order
-
         piece_queue_limit = options.outbound_piece_limit
         piece_outbound_limit = options.outbound_piece_limit
 
@@ -517,8 +546,11 @@ class Connection(object):
         if not torrent:
             return
 
-        if not torrent.started():
+        if not torrent.should_be_making_requests():
             return
+
+        #if not torrent.started():
+        #    return
 
         if torrent.throttled():
             #logging.info('conn throttled - exit')

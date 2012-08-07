@@ -101,7 +101,7 @@ routes = { 'BITFIELD': BitmaskHandler,
            'PIECE': PieceHandler
            }
 
-from frontend import IndexHandler, StatusHandler, APIHandler, PingHandler, VersionHandler, BtappHandler, PairHandler, request_logger, ProxyHandler
+from frontend import IndexHandler, StatusHandler, APIHandler, PingHandler, VersionHandler, BtappHandler, PairHandler, request_logger, ProxyHandler, APIUploadHandler, APIUploadWebSocketHandler
 
 frontend_routes = [
     ('/?', IndexHandler),
@@ -111,7 +111,9 @@ frontend_routes = [
     ('/proxy/?', ProxyHandler),
     ('/version/?', VersionHandler),
     ('/statusv2/?', StatusHandler),
-    ('/api', APIHandler),
+    ('/api/upload/?', APIUploadHandler),
+    ('/api/upload/ws/?', APIUploadWebSocketHandler),
+    ('/api/?', APIHandler),
     ('/btapp/?', BtappHandler)
 ]
 

@@ -24,7 +24,6 @@ class ProxyTorrent(object):
     def __init__(self, file, handler):
         self.file = file
         self.filepath = file.get_path()
-        self.file.torrent.start() # temporarily until this handler is closed...
         self.handler = handler
         self.diskfile = None
 

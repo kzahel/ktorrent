@@ -156,7 +156,7 @@ class Torrent(object):
 
     def handle_bad_piece(self, piece):
         logging.error('BAD PIECE!')
-        del self.torrent.pieces[piece.num]
+        del self.pieces[piece.num]
 
     def handle_good_piece(self, piece, data):
         #logging.info('handle good piece!')
@@ -177,6 +177,10 @@ class Torrent(object):
 
     def unregister_pieces_requested(self, request_data):
         self.piece_consumers.remove(request_data)
+
+    def should_be_making_requests(self):
+        return True # xxx --- take this out!
+        return len(self.piece_consumers) > 0 or self.started()
 
     def get_high_priority_piece(self):
         toreturn = None
@@ -316,7 +320,7 @@ class Torrent(object):
             Settings.set(['torrents',self.hash,'sid'], sid)
             self.sid = sid
 
-    def update_meta(self, meta):
+    def update_meta(self, meta, update=False):
         #logging.info('update meta!')
         self.meta = meta
         self.meta_info = bencode.bencode(self.meta['info'])
@@ -401,7 +405,6 @@ class Torrent(object):
         self._attributes = self._default_attributes.copy()
         self.meta = None
         self.meta_info = None
-        self.bitmask = None
         self._file_byte_accum = None
         self.load_attributes()
         self.load_metadata()

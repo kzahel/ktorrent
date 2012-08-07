@@ -124,6 +124,7 @@ class UTHandler(BTMessageHandler):
             self.request.connection._remote_extension_handshake_r = dict( (v,k) for k,v in info['m'].items() )
 
             if not self.request.connection._sent_extension_handshake:
+                # duplicated code! -- see Connection.send_extension_handshake
 
                 resp = {'v': 'ktorrent 0.01',
                         'm': {},
@@ -159,6 +160,7 @@ class UTHandler(BTMessageHandler):
                         data = self.request.payload[1:j+2]
                         meta = bencode.bdecode(data)
                         rest = self.request.payload[j+2:]
+                        logging.info('metadata piece request response of len! %s' %len(rest))
                         self.request.connection.insert_meta_piece(meta['piece'],rest)
                 else:
                     info = bencode.bdecode( self.request.payload[1:] )
