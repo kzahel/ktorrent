@@ -144,6 +144,9 @@ class File(object):
     def get_downloaded(self):
         bytes = 0
         pieces = self.get_spanning_pieces()
+        if not pieces:
+            import pdb; pdb.set_trace()
+        assert(pieces)
         for piece in pieces: #self.torrent.pieces.values(): # pieces
             if piece.complete():
                 interval = intersect( (piece.start_byte, piece.end_byte),

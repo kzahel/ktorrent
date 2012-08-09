@@ -78,6 +78,7 @@ class Session(object):
                     remove['btapp']['torrent']['all'][outhash] = self.state['btapp']['torrent']['all'][outhash]
                     toremove.append(outhash)
             for hash in toremove:
+                # deleting two torrents between a compute_changes causes this key to not exist! (?)
                 del self.state['btapp']['torrent']['all'][outhash]
 
         return add, remove

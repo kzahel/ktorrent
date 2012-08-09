@@ -47,7 +47,6 @@ class Torrent(object):
                 tracker.announce(self.hash)
 
         if self.wants_more_peers():
-            logging.info('wants more peers!')
             peer = self.get_random_peer()
             if peer:
                 Torrent.Client.instance().connect( peer[0], peer[1], self.hash )
@@ -410,9 +409,12 @@ class Torrent(object):
         self.bitmask = self.get_bitmask()
         if options.verbose > 2:
             logging.info('bitmask is %s' % ''.join(map(str,self.bitmask)))
+        self.populate_pieces()
+        Torrent.Connection.notify_torrent_has_bitmask(self)
+
+    def populate_pieces(self):
         for i in range(self.get_num_pieces()):
             self.get_piece(i) # force populate (for Piece spanning file progress computation)
-        Torrent.Connection.notify_torrent_has_bitmask(self)
 
     def set_attribute(self, key, value):
         if key == 'status':

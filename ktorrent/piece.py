@@ -10,6 +10,8 @@ class Piece(object):
     @classmethod
     def get_spanning(cls, torrent, start_byte, end_byte):
         # gets all pieces that contain start_byte, end_byte
+        torrent.populate_pieces()
+
         pieces = []
         for n,piece in torrent.pieces.iteritems():
             # better yet, do two ended binary search ...
