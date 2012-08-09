@@ -436,7 +436,6 @@ class Torrent(object):
             if self.meta:
                 return self.meta['info']['name']
             else:
-                import pdb; pdb.set_trace()
                 return hexlify(self.hash)
         elif key == 'size':
             return self.get_size() if self.meta else None

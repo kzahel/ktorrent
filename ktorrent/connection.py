@@ -352,7 +352,7 @@ class Connection(object):
         self._active = False
         Connection.instances.remove(self)
 
-        logging.warn('closed peer connection %s' % [self.address, self.torrent.hash[:6] + '..' if self.torrent else None])
+        logging.warn('closed peer connection %s' % [self.address, binascii.hexlify(self.torrent.hash)[:6] + '..' if self.torrent else None])
         if self.torrent and self.torrent.meta:
             complete_upload = self._piece_bytes_uploaded >= self.torrent.get_size()
             complete_download = self._piece_bytes_downloaded >= self.torrent.get_size()
@@ -404,7 +404,7 @@ class Connection(object):
                 #self.torrent = Torrent.instantiate( binascii.hexlify(self.handshake['infohash']) )
                 self.torrent = Torrent.instantiate( self.handshake['infohash'] )
                 self.torrent.connections.append(self)
-                logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
+                logging.info('connection has torrent %s with hash %s%s' % (self.torrent, [self.torrent.hash], ' (with metadata)' if self.torrent.meta else ''))
                 if not self._sent_handshake:
                     self.send_handshake()
                 if not self._sent_extension_handshake:

@@ -1,6 +1,7 @@
 import logging
 import bencode
 import hashlib
+import binascii
 from uuid import uuid4
 from torrent import Torrent
 from connection import Connection
@@ -76,11 +77,13 @@ class Client(object):
             d = dict( (s[0], s[1]) for s in sep )
             hash = d['xt'].split(':')[-1]# urn:btih:{{hash}}
             logging.warn('adding infohash parsed from magnet uri %s' % hash)
-            self.add_torrent(hash) 
+            rawhash = binascii.unhexlify(hash)
+            self.add_torrent(rawhash)
             return True
         elif parsed.scheme == '':
             if len(s) == 40:
-                return self.add_torrent(s)
+                hash = binascii.unhexlify(s)
+                return self.add_torrent(hash)
             else:
                 logging.error('bad add uri %s' % s)
         else:
