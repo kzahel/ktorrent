@@ -4,6 +4,10 @@ from tornado.options import options
 from hashlib import sha1
 import bencode
 import pdb
+import binascii
+
+def hexlify(s):
+    return binascii.hexlify(s).upper()
 
 def debugmethod(func):
     '''Decorator to print function call details - parameters names and effective values'''
@@ -78,7 +82,7 @@ class MetaStorage(object):
     def insert(cls, torrent):
         torrent_meta = torrent.meta
         filename = torrent_meta['info']['name'] + '.torrent'
-        cls.data[ torrent.hash.upper() ] = { 'filename': filename }
+        cls.data[ torrent.hash ] = { 'filename': filename }
         fo = open( os.path.join(options.datapath, filename), 'w')
         fo.write( bencode.bencode(torrent_meta) )
         fo.close()

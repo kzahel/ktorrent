@@ -95,13 +95,13 @@ class File(object):
         info = {}
         # do we have the data ?
         pieces = self.get_spanning_pieces()
-        
+        assert(len(pieces)>0)
         need_pieces = []
 
         for piece in pieces:
             if not piece.complete():
                 interval = intersect( (piece.start_byte, piece.end_byte),
-                                      (start_byte, end_byte) )
+                                      (self.start_byte + start_byte, self.start_byte + end_byte) )
                 if interval:
                     need_pieces.append(piece)
 

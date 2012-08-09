@@ -16,12 +16,16 @@ from tornado.options import options
 from tornado.ioloop import IOLoop
 ioloop = IOLoop.instance()
 from proxytorrent import ProxyTorrent
+from tracker import Tracker
 
 class BaseHandler(tornado.web.RequestHandler):
     def writeout(self, args):
         if 'callback' in self.request.arguments:
             self.set_header('Content-Type','text/javascript')
-            self.write( '%s(%s)' % (self.get_argument('callback'), json.dumps(args, indent=2)) )
+            try:
+                self.write( '%s(%s)' % (self.get_argument('callback'), json.dumps(args, indent=2)) )
+            except:
+                import pdb; pdb.set_trace()
         else:
             self.write(args)
 
@@ -29,15 +33,16 @@ class BaseHandler(tornado.web.RequestHandler):
 class IndexHandler(BaseHandler):
     def get(self):
         pass###
-
+import binascii
 class StatusHandler(BaseHandler):
     def get(self):
         attrs = {}
 
         attrs.update( dict( 
-                clients = [ (c, c.torrents) for c in Client.instances ],
+                clients = [ (c, dict( (binascii.hexlify(h), t) for h,t in c.torrents.iteritems() )) for c in Client.instances ],
+                trackers = Tracker.instances,
                 connections = Connection.instances,
-                torrents = dict( (h, {'torrent':t, 'conns':t.connections,'attrs':t._attributes}) for h,t in Torrent.instances.iteritems() ),
+                torrents = dict( (binascii.hexlify(h), {'torrent':t, 'conns':t.connections,'attrs':t._attributes}) for h,t in Torrent.instances.iteritems() ),
                 peers = Peer.instances.values()
                             ) )
         def custom(obj):

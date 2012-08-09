@@ -1,5 +1,6 @@
 import random
 import logging
+import binascii
 from tornado.options import options
 import re
 fnre = re.compile('btapp/torrent/all/([A-Fa-f0-9]{40})/([^/.]*)')
@@ -20,7 +21,7 @@ def create_update_add_remove_trees(changes, add, remove, key=None):
         remove[key] = changes[0]
     else:
         logging.error('hmmmmmm')
-    
+from util import hexlify    
 
 class Session(object):
     instances = {}
@@ -44,35 +45,40 @@ class Session(object):
 
             for hash, torrent in self.client.torrents.iteritems():
 
-                if hash not in self.state['btapp']['torrent']['all']:
+                outhash = hexlify(hash)
+
+                if outhash not in self.state['btapp']['torrent']['all']:
                     dump = torrent.dump_state()
                     if 'btapp' in add:
-                        add['btapp']['torrent']['all'][hash] = dump
+                        add['btapp']['torrent']['all'][outhash] = dump
                     else:
-                        add['btapp'] = {'torrent':{'all':{hash:dump}}}
-                    self.state['btapp']['torrent']['all'][hash] = dump
+                        add['btapp'] = {'torrent':{'all':{outhash:dump}}}
+                    self.state['btapp']['torrent']['all'][outhash] = dump
                 else:
-                    a, r = torrent.update_attributes(self.state['btapp']['torrent']['all'][hash])
+                    a, r = torrent.update_attributes(self.state['btapp']['torrent']['all'][outhash])
                     if a:
                         if 'btapp' not in add:
                             add['btapp'] = {'torrent':{'all':{}}}
-                        add['btapp']['torrent']['all'][hash] = a
+                        add['btapp']['torrent']['all'][outhash] = a
                     if r:
                         if 'btapp' not in remove:
                             remove['btapp'] = {'torrent':{'all':{}}}
-                        remove['btapp']['torrent']['all'][hash] = r
+                        remove['btapp']['torrent']['all'][outhash] = r
 
             toremove = []
-            for hash in self.state['btapp']['torrent']['all']:
+            for outhash in self.state['btapp']['torrent']['all']:
+
+                hash = binascii.unhexlify(outhash)
+
                 if hash not in self.client.torrents:
                     if 'btapp' not in remove:
                         remove['btapp'] = {'torrent':{'all':{}}}
 
                     # torrent was removed
-                    remove['btapp']['torrent']['all'][hash] = self.state['btapp']['torrent']['all'][hash]
-                    toremove.append(hash)
+                    remove['btapp']['torrent']['all'][outhash] = self.state['btapp']['torrent']['all'][outhash]
+                    toremove.append(outhash)
             for hash in toremove:
-                del self.state['btapp']['torrent']['all'][hash]
+                del self.state['btapp']['torrent']['all'][outhash]
 
         return add, remove
 
@@ -82,7 +88,8 @@ class Session(object):
         if len(self.client.torrents) > 0:
             self.state['btapp']['torrent'] = {'all':{}}
             for hash,torrent in self.client.torrents.iteritems():
-                self.state['btapp']['torrent']['all'][hash] = torrent.dump_state()
+                outhash = hexlify(hash)
+                self.state['btapp']['torrent']['all'][outhash] = torrent.dump_state()
         return self.state
 
     def process_changes(self, changes):
@@ -120,7 +127,8 @@ class Session(object):
         if path == 'btapp/add/torrent':
             self.client.add_torrent_any(args[0])
         elif res:
-            hash, command = res.groups()
+            outhash, command = res.groups()
+            hash = binascii.unhexlify(outhash)
             torrent = self.client.torrents[hash]
             if torrent:
                 if command == 'remove':

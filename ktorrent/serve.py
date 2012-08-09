@@ -46,6 +46,9 @@ if options.debug:
     import pdb
 ioloop = tornado.ioloop.IOLoop()
 ioloop.install()
+
+from tornado import httpclient
+Client.http_client = httpclient.AsyncHTTPClient()
 #print 'new ioloop',ioloop
 
 class BTApplication(object):
@@ -161,6 +164,8 @@ logging.info('started btserver')
 tornado.ioloop.PeriodicCallback( Connection.make_piece_request, 1000 * 5, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( Connection.get_metainfo, 1000 * 1, io_loop=ioloop ).start() # better to make event driven
 tornado.ioloop.PeriodicCallback( Client.tick, 1000 * 1, io_loop=ioloop ).start()
+tornado.ioloop.PeriodicCallback( client.do_trackers, 1000 * 1, io_loop=ioloop ).start()
+tornado.ioloop.PeriodicCallback( client.peer_think, 3000 * 1, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( Connection.cleanup_old_requests, 1000 * 1, io_loop=ioloop ).start()
 
 #testhash = '0EB7F828D4E097FDB1ADE74186528CD31DFC1A3C'

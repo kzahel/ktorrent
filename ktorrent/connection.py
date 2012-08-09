@@ -73,7 +73,7 @@ class Connection(object):
 
     @classmethod
     def initiate(cls, host, port, infohash):
-        logging.info('initiating connection with %s,%s with hash %s' % (host, port, infohash))
+        logging.info('initiating connection with %s,%s with hash %s' % (host, port, [infohash]))
         af = socket.AF_INET
         addrinfo = socket.getaddrinfo(host, port, af, socket.SOCK_STREAM,
                                           0, 0)
@@ -88,7 +88,7 @@ class Connection(object):
     def initiate_connected(cls, conn, infohash):
         logging.info('connected to %s' % str(conn.address))
         conn._connecting = False
-        conn.infohash = binascii.unhexlify( infohash )
+        conn.infohash = infohash
         conn.torrent = Torrent.instantiate( infohash )
         conn.torrent.connections.append(conn)
         conn.send_handshake(infohash=infohash)
@@ -209,13 +209,13 @@ class Connection(object):
             torrent_meta = bencode.bdecode(torrent_data)
             connection_hash = self.torrent.hash
             self.torrent.update_meta( { 'info': torrent_meta }, update=True )
-            if binascii.hexlify(infohash).lower() != connection_hash.lower():
+            if infohash != connection_hash:
                 logging.warn('received metadata does not correspond to connection infohash!')
                 if 'althash' in self.torrent.meta['info']:
                     althash = self.torrent.meta['info']['althash']
-                    althash_hex = binascii.hexlify(althash)
-                    logging.info('received metadata has althash %s' % [althash_hex])
-                    if althash_hex.lower() == connection_hash.lower():
+                    logging.info('received metadata has althash %s' % [althash])
+                    if althash == connection_hash:
+                        Torrent.register_althash( self.torrent )
                         logging.info('GREAT! althash matches the connection hash though! proceeding!')
                 else:
                     logging.error('received metadata has no althash')
@@ -338,7 +338,7 @@ class Connection(object):
 
     def when_connected(self):
         try:
-            logging.info('attempting read of len %s' % constants.handshake_length)
+            #logging.info('attempting read of len %s' % constants.handshake_length)
             self.stream.read_bytes(constants.handshake_length, self.got_handshake)
         except IOError:
             logging.warn('failed reading handshake (hopefully on_connection_close is called)')
@@ -374,8 +374,6 @@ class Connection(object):
         self._sent_handshake = True
         if infohash is None:
             infohash = self.infohash
-        else:
-            infohash = binascii.unhexlify(infohash)
         #logging.info('sending handshake with infohash %s' % binascii.hexlify(infohash))
         towrite = ''.join((chr(len(constants.protocol_name)),
                            constants.protocol_name,
@@ -400,7 +398,11 @@ class Connection(object):
             self.peer = Peer.instantiate(self.peerid)
             self.infohash = self.handshake['infohash']
             if not self.torrent:
-                self.torrent = Torrent.instantiate( binascii.hexlify(self.handshake['infohash']) )
+
+                # check if this torrent is started, and in the current client's list of torrents!
+
+                #self.torrent = Torrent.instantiate( binascii.hexlify(self.handshake['infohash']) )
+                self.torrent = Torrent.instantiate( self.handshake['infohash'] )
                 self.torrent.connections.append(self)
                 logging.info('connection has torrent %s with hash %s%s' % (self.torrent, self.torrent.hash, ' (with metadata)' if self.torrent.meta else ''))
                 if not self._sent_handshake:
@@ -564,7 +566,6 @@ class Connection(object):
             return
 
         if torrent.meta and conn._remote_bitmask:
-
             last_cur_piece = None # test that this is working as intended
             cur_piece = None
 

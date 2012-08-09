@@ -100,6 +100,10 @@ class ProxyTorrent(object):
         # when a piece is completed, it calls this... perhaps filling up the write buffer too fast.
         # put in some logic to simply return when the write buffer is pretty full.
 
+        if not os.path.exists(self.file.get_path()):
+            logging.info('file %s does not even exist yet...' % self.file)
+            return
+
         if self.handler.request.connection.stream.closed():
             self.get_diskfile().close()
             return

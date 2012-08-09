@@ -9,13 +9,19 @@ import pdb
 import struct
 import constants
 import time
+import binascii
+from tornado import gen
 from bitcounter import BitCounter
 import bencode
+import binascii
 from settings import Settings
+from tracker import Tracker
 from constants import tor_meta_codes, tor_meta_codes_r
 
 from file import File
 from piece import Piece
+
+from util import hexlify
 
 class Torrent(object):
     instances = {}
@@ -26,8 +32,63 @@ class Torrent(object):
 
     _default_attributes = {'status':0, 'queue_position':-1, 'upload_limit':0} # persist this...
 
+    @classmethod
+    def register_althash(cls, torrent):
+        althash = torrent.hash
+        realhash = sha1(torrent.meta_info).hexdigest()
+        Settings.set(['torrent_althashes',realhash], althash)
+        logging.info('set torrent althash')
+
+    def peer_think(self):
+        # think about our current list of peers, and if we'd rather be
+        # doing something with other peers...
+        for key,tracker in self.trackers.iteritems():
+            if tracker.can_announce():
+                tracker.announce(self.hash)
+
+        if self.wants_more_peers():
+            logging.info('wants more peers!')
+            peer = self.get_random_peer()
+            if peer:
+                Torrent.Client.instance().connect( peer[0], peer[1], self.hash )
+
+    def get_random_peer(self):
+        for key,tracker in self.trackers.iteritems():
+            if tracker.peerdata:
+                return random.choice(tracker.peerdata)
+
+    def notify_peers(self, peer_list):
+        return
+        # called when new peers are available (via a tracker)
+        if peer_list:
+            if self.wants_more_peers():
+                peer = random.choice(peer_list)
+                logging.info('add a peer! %s' % [peer])
+                Torrent.Client.instance().connect( peer[0], peer[1], self.hash )
+                #fn = functools.partial(client.connect, host, port, startuphash)
+            
+    def wants_more_peers(self):
+        return len(self.connections) < 5 # and self.started()
+
+    @gen.engine
+    def do_trackers(self, callback=None):
+        assert(len(self.hash) == 20)
+        # talk to trackers in attempt to get peers
+        if not self.started(): raise StopIteration
+        if not self.meta: raise StopIteration
+
+        if 'announce-list' in self.meta:
+            tier1 = self.meta['announce-list'][0]
+            for url in tier1:
+                tracker = Tracker.instantiate(url, self.hash)
+                self.trackers[tracker.get_key()] = tracker
+                if tracker.can_announce():
+                    result = yield gen.Task( tracker.announce )
+                    logging.info('%s tracker announce got result %s' % ([self.hash], result))
+
+
     def __repr__(self):
-        return '<Torrent %s (meta:%s, %s)>' % (self.hash, True if self.meta else False, self.get_summary())
+        return '<Torrent %s (meta:%s, %s)>' % (hexlify(self.hash), True if self.meta else False, self.get_summary())
 
     def throttled(self):
         return False
@@ -58,7 +119,7 @@ class Torrent(object):
                  'remove': "[nf](number)()",
                  'recheck': "[nf]()",
                  'add_peer':"[nf](string)(dispatch)",
-                 'hash':self.hash,
+                 'hash':hexlify(self.hash),
                  'properties':{'all':self.get_attributes()}}
         if self.meta:
             data['file'] = self.dump_file_state()
@@ -76,6 +137,8 @@ class Torrent(object):
 
     def get_summary(self):
         if self.bitmask:
+            #if self.bitmask.count(0) == 1:
+            #    import pdb; pdb.set_trace()
             return 'zeropieces:%s/%s' % (self.bitmask.count(0),
                                      len(self.bitmask))
         else:
@@ -84,7 +147,8 @@ class Torrent(object):
     def save_metadata(self):
         torrent_meta = self.meta
         filename = torrent_meta['info']['name'] + '.torrent'
-        key = self.hash.upper()
+        key = self.hash
+        #key = self.hash.upper()
         Settings.set(['torrents',key,'filename'],filename)
 
         fo = open( os.path.join(options.datapath, filename), 'w')
@@ -179,7 +243,6 @@ class Torrent(object):
         self.piece_consumers.remove(request_data)
 
     def should_be_making_requests(self):
-        return True # xxx --- take this out!
         return len(self.piece_consumers) > 0 or self.started()
 
     def get_high_priority_piece(self):
@@ -267,20 +330,31 @@ class Torrent(object):
         if force_create:
             return self.create_bitmask()
 
+    def all_files_missing(self):
+        return False
+
     def create_bitmask(self):
+        # need to improve this function to detect when files are completely missing that we don't need to return null bytes etc...
         bitmask = []
-        logging.info('computing piece hashes... (this could take a while)')
-        for piecenum in range(self.get_num_pieces()):
-            diskpiecehash = self.get_piece_disk_hash(piecenum)
-            metahash = self.meta['info']['pieces'][20*piecenum: 20*(piecenum+1)]
-            #logging.info('hash on disk/meta: %s' % [diskpiecehash, metahash])
-            if diskpiecehash == metahash:
-                bitmask.append(1)
-            else:
+
+        if self.all_files_missing():
+            for piecenum in range(self.get_num_pieces()):
                 bitmask.append(0)
-        self._bitmask_incomplete_count = bitmask.count(0)
-        logging.info('missing pieces: %s' % self._bitmask_incomplete_count)
-        return bitmask
+            self._bitmask_incomplete_count = bitmask.count(0)
+            return bitmask
+        else:
+            logging.info('computing piece hashes... (this could take a while)')
+            for piecenum in range(self.get_num_pieces()):
+                diskpiecehash = self.get_piece_disk_hash(piecenum)
+                metahash = self.meta['info']['pieces'][20*piecenum: 20*(piecenum+1)]
+                #logging.info('hash on disk/meta: %s' % [diskpiecehash, metahash])
+                if diskpiecehash == metahash:
+                    bitmask.append(1)
+                else:
+                    bitmask.append(0)
+            self._bitmask_incomplete_count = bitmask.count(0)
+            logging.info('missing pieces: %s' % self._bitmask_incomplete_count)
+            return bitmask
 
     def get_piece_disk_hash(self, piecenum):
         s = sha1()
@@ -292,6 +366,7 @@ class Torrent(object):
 
     @classmethod
     def instantiate(cls, infohash):
+        assert(len(infohash) == 20)
         #logging.info('instantiate torrent with hash %s' % infohash)
         if infohash in cls.instances:
             instance = cls.instances[infohash]
@@ -334,7 +409,7 @@ class Torrent(object):
             self._file_byte_accum = [0]
         self.bitmask = self.get_bitmask()
         if options.verbose > 2:
-            logging.info('self.bitmask is %s' % ''.join(map(str,self.bitmask)))
+            logging.info('bitmask is %s' % ''.join(map(str,self.bitmask)))
         for i in range(self.get_num_pieces()):
             self.get_piece(i) # force populate (for Piece spanning file progress computation)
         Torrent.Connection.notify_torrent_has_bitmask(self)
@@ -361,7 +436,8 @@ class Torrent(object):
             if self.meta:
                 return self.meta['info']['name']
             else:
-                return self.hash
+                import pdb; pdb.set_trace()
+                return hexlify(self.hash)
         elif key == 'size':
             return self.get_size() if self.meta else None
         elif key == 'downloaded':
@@ -396,8 +472,10 @@ class Torrent(object):
 
     def __init__(self, infohash):
         self.connections = []
+        self.trackers = {}
         self.bitcounter = BitCounter()
         self.hash = infohash
+        assert(len(self.hash) == 20)
         self.piece_consumers = []
         self.pieces = {} # lazy populate on get_piece
         self.files = {} # lazy populate on get_file
@@ -412,7 +490,6 @@ class Torrent(object):
         self.ensure_stream_id()
         if self.meta:
             self.update_meta(self.meta)
-
 
     def started(self):
         return self._attributes['status'] & 1
@@ -440,3 +517,4 @@ class Torrent(object):
         piece = self.get_piece(piecenum)
         return piece.get_data(offset, size)
 
+Tracker.Torrent = Torrent

@@ -7,7 +7,7 @@ import torrent
 from tornado.options import options
 from connection import Connection
 import math
-from util import parse_bitmask
+from util import parse_bitmask, hexlify
 
 class BTMessageHandler(object):
     def __init__(self, application, request):
@@ -28,7 +28,7 @@ class BTMessageHandler(object):
 
     def _request_summary(self):
         if self.request.connection.torrent and self.request.connection.torrent.hash:
-            hashstr = '(' + self.request.connection.torrent.hash[:6] + '..)'
+            hashstr = '(' + hexlify(self.request.connection.torrent.hash)[:6] + '..)'
         else:
             hashstr = '--'
 
