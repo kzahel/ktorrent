@@ -71,14 +71,14 @@ class Session(object):
                 hash = binascii.unhexlify(outhash)
 
                 if hash not in self.client.torrents:
+                    logging.info('hash not found in cur torrents')
                     if 'btapp' not in remove:
                         remove['btapp'] = {'torrent':{'all':{}}}
 
                     # torrent was removed
                     remove['btapp']['torrent']['all'][outhash] = self.state['btapp']['torrent']['all'][outhash]
                     toremove.append(outhash)
-            for hash in toremove:
-                # deleting two torrents between a compute_changes causes this key to not exist! (?)
+            for outhash in toremove:
                 del self.state['btapp']['torrent']['all'][outhash]
 
         return add, remove
