@@ -294,6 +294,7 @@ class PieceHandler(BTMessageHandler):
         offset = struct.unpack('>I', self.request.payload[4:8])[0]
         self.request.args = [index, offset, '...']
         data = self.request.payload[8:]
+        assert data # also assert data matches requested size?
         piece = self.request.connection.torrent.get_piece(index)
         tor_finished, piece_finished = piece.handle_peer_response(self, offset, data)
         conn = self.request.connection

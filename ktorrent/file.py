@@ -26,7 +26,7 @@ class File(object):
         self.torrent = torrent
         self.size = self.get_size()
         self.start_byte = self.torrent._file_byte_accum[self.num]
-        self.end_byte = self.start_byte + self.size - 1
+        self.end_byte = self.start_byte + self.size - 1 # oye...!
         self.path = self.get_path()
 
     def get_data_in_interval(self, pinterval):
@@ -132,6 +132,13 @@ class File(object):
         else:
             return self.torrent.meta['info']['name']
 
+    def get_relrelpath(self):
+        if self.torrent.is_multifile():
+            path = self.torrent.meta['info']['files'][self.num]['path']
+            return os.path.sep.join(path)
+        else:
+            return self.torrent.meta['info']['name']
+
     def get_path(self):
         return os.path.join( options.datapath, self.get_relpath() )
 
@@ -171,6 +178,7 @@ class File(object):
                 'name': self.get_filename(), # redundant, but the client does this too
                 'properties': {'all':{'size': self.size,
                                       'name': self.get_filename(),
+                                      'path': self.get_relrelpath(),
                                       'streaming_url': self.get_streaming_url(),
                                       'downloaded': self.get_downloaded(),
                                       'index': self.num

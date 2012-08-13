@@ -130,6 +130,8 @@ class Session(object):
         elif res:
             outhash, command = res.groups()
             hash = binascii.unhexlify(outhash)
+            if hash not in self.client.torrents:
+                import pdb; pdb.set_trace()
             torrent = self.client.torrents[hash]
             if torrent:
                 if command == 'remove':
