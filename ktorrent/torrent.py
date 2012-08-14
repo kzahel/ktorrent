@@ -90,7 +90,6 @@ class Torrent(object):
         return '<Torrent %s (meta:%s, %s)>' % (hexlify(self.hash), True if self.meta else False, self.get_summary())
 
     def throttled(self):
-        return False
         return self.bitcounter.recent() > self.max_dl_rate()
 
     def max_dl_rate(self):
@@ -188,13 +187,26 @@ class Torrent(object):
         # decodes from bytes to array of 0,1's
         return bytes
 
+    def handle_pex(self, added_peers, raw=None):
+        logging.info('torrent knows new peers %s' % added_peers)
+        for peer in added_peers:
+            if 'compact' in peer.data:
+                ip, port = peer.data['compact']
+                Torrent.Client.instance().connect( ip, port, self.hash )
+
     def save_attributes(self):
         saveattrs = {}
+        persisted = Settings.get(['torrents',self.hash,'attributes'])
         for k in self._attributes:
-            if self._attributes[k] != self._default_attributes[k]:
+
+            if k in persisted and self._attributes[k] != persisted[k] or \
+                    self._attributes[k] != self._default_attributes[k]:
                 saveattrs[k] = self._attributes[k]
         if saveattrs:
-            Settings.set(['torrents',self.hash,'attributes'], saveattrs)
+            logging.info('saved attributes %s' % saveattrs)
+            path = ['torrents',self.hash,'attributes']
+            Settings.set(path, saveattrs)
+            saved = Settings.get(path)
 
     def load_attributes(self):
         try:

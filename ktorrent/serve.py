@@ -8,6 +8,7 @@ import time
 import logging
 import os
 from hashlib import sha1
+import binascii
 import bencode
 from tornado.options import define, options
 from torrent import Torrent
@@ -199,6 +200,8 @@ if options.startup_connect_to:
             #purisma = '27689B76CDA08C9E21ACD9584CDB90AA82C63676'
             purisma = 'FC59F2D267DA5480F0FAF37373C54F59CB5A980E'
             startuphash = purisma
+
+    startuphash = binascii.unhexlify(startuphash)
     fn = functools.partial(client.connect, host, port, startuphash)
     ioloop.add_timeout( time.time() + 1, fn )
     #client.connect(host,port,startuphash)

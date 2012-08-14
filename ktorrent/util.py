@@ -6,6 +6,12 @@ import bencode
 import pdb
 import binascii
 
+def decode_peer(bytes):
+    assert len(bytes) == 6
+    ip = '.'.join( map(str, ( map(ord, bytes[:4]) ) ) )
+    port = ord(bytes[4]) * 256 + ord(bytes[5])
+    return ip, port
+
 def hexlify(s):
     return binascii.hexlify(s).upper()
 

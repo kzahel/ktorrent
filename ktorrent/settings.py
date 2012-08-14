@@ -24,7 +24,10 @@ def set_deep(keys, value, d):
         l = keys[:i+1]
         try:
             val = get_deep(l, d)
-            if type(val) == type({}):
+            if i == len(keys)-1:
+                # final thing!
+                get_deep(keys[:-1], d)[keys[-1]] = value
+            elif type(val) == type({}):
                 pass
             else:
                 raise KeyError
@@ -49,6 +52,11 @@ assert d == {'foo': {'bar': {'bob': {'baz': 23}}}}
 set_deep(['foo','bar','woooooooo','hooo'],44, d)
 assert d == {'foo': {'bar': {'bob': {'baz': 23}, 'woooooooo': {'hooo': 44}}}}
 
+d = {}
+set_deep(['torrents','aa','attributes'],{'bob':1}, d)
+assert d == {'torrents':{'aa':{'attributes':{'bob':1}}}}
+set_deep(['torrents','aa','attributes'],{'bob':0}, d)
+assert d == {'torrents':{'aa':{'attributes':{'bob':0}}}}
 
 class Settings(object):
     # todo -- fix so get/set don't write, but separate flush function

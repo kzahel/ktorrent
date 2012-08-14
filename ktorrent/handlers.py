@@ -6,8 +6,9 @@ import constants
 import torrent
 from tornado.options import options
 from connection import Connection
+from peer import Peer
 import math
-from util import parse_bitmask, hexlify
+from util import parse_bitmask, hexlify, decode_peer
 
 class BTMessageHandler(object):
     def __init__(self, application, request):
@@ -179,17 +180,38 @@ class UTHandler(BTMessageHandler):
 
 
                             self.send_message('UTORRENT_MSG', chr(their_ext_msg_type) + deny_payload)
+            elif ext_msg_str == 'ut_pex':
+                self.handle_pex()
             else:
                 logging.error('unhandled metadata extension %s' % ext_msg_str)
                 if options.asserts:
                     pdb.set_trace()
-
         else:
             logging.error('do not recognize extension message type %s' % ext_msg_type)
             if options.asserts:
                 pdb.set_trace()
 
         self.finish()
+
+    def handle_pex(self):
+        info = bencode.bdecode(self.request.payload[1:])
+        if 'added' in info:
+            num_added = len(info['added'])/6
+
+        peers = []
+        for i in range(num_added):
+            peerinfo = info['added'][6*i:6*(i+1)]
+            peer = Peer.instantiate( {'compact':decode_peer(peerinfo)} )
+            peers.append(peer)
+
+        if 'added_f' in info:
+            for i in range(num_added):
+                flags = list(bin(ord(info['added_f'][i]))[2:])
+                flags = map(lambda x:x=='1', flags)
+                peers[i].add_flags(flags)
+
+        self.request.connection.torrent.handle_pex(peers, raw=info)
+
 
 class ChokeHandler(BTMessageHandler):
     def handle(self):

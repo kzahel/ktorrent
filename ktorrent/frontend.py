@@ -17,7 +17,7 @@ from tornado.ioloop import IOLoop
 ioloop = IOLoop.instance()
 from proxytorrent import ProxyTorrent
 from tracker import Tracker
-
+from util import hexlify
 class BaseHandler(tornado.web.RequestHandler):
     def writeout(self, args):
         if 'callback' in self.request.arguments:
@@ -39,11 +39,11 @@ class StatusHandler(BaseHandler):
         attrs = {}
 
         attrs.update( dict( 
-                clients = [ (c, dict( (binascii.hexlify(h), t) for h,t in c.torrents.iteritems() )) for c in Client.instances ],
+                clients = [ (c, dict( (hexlify(h), t) for h,t in c.torrents.iteritems() )) for c in Client.instances ],
                 trackers = Tracker.instances,
                 connections = Connection.instances,
                 torrents = dict( (binascii.hexlify(h), {'torrent':t, 'conns':t.connections,'attrs':t._attributes}) for h,t in Torrent.instances.iteritems() ),
-                peers = Peer.instances.values()
+                peers = [dict( (str(k),v) for k,v in Peer.instances_compact.items() ), dict( (hexlify(k),v) for k,v in Peer.instances_peerid.items() )]
                             ) )
         def custom(obj):
             return escape(str(obj))

@@ -123,7 +123,6 @@ class Client(object):
         for h,t in Torrent.instances.iteritems():
             t.save_quick_resume()
             t.save_attributes()
-
         d = [{'torrents': [str(hash) for hash in c.torrents],
               'id': c.id} for c in cls.instances]
         Settings.set('clients',d)

@@ -107,7 +107,9 @@ class Connection(object):
     def send_extension_handshake(self):
         self._sent_extension_handshake = True
         data = {'v': 'ktorrent 0.01',
-                'm': {'ut_metadata': 99}, # UT SEEMS TO USE 2 and SUCKS
+                'm': {'ut_metadata': 99,
+                      'ut_pex': 55
+                      }, # UT SEEMS TO USE 2 and SUCKS
                 'p': options.port}
         if self.torrent and self.torrent.meta:
             data['metadata_size'] = len(self.torrent.meta_info)
@@ -395,7 +397,7 @@ class Connection(object):
             logging.info('parsed handshake %s' % [self.handshake])
         if self.handshake:
             self.peerid = self.handshake['peerid']
-            self.peer = Peer.instantiate(self.peerid)
+            self.peer = Peer.instantiate({'peerid':self.peerid})
             self.infohash = self.handshake['infohash']
             if not self.torrent:
 

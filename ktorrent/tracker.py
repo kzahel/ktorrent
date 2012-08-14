@@ -5,11 +5,7 @@ import binascii
 import time
 import urllib
 
-def decode_peer(bytes):
-    assert len(bytes) == 6
-    ip = '.'.join( map(str, ( map(ord, bytes[:4]) ) ) )
-    port = ord(bytes[4]) * 256 + ord(bytes[5])
-    return ip, port
+from util import decode_peer
 
 class TrackerResponse(object):
     def __repr__(self):
