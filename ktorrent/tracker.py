@@ -15,6 +15,8 @@ class TrackerResponse(object):
         self.error = httpresponse.code != 200
         self.data = data
 
+import logging
+
 class Tracker(object):
     http_client = None
     instances = {}
@@ -54,6 +56,7 @@ class Tracker(object):
         
     @gen.engine
     def announce(self, callback=None):
+        logging.info('%s announcing' % self)
         if not self.http_client:
             Tracker.http_client = httpclient.AsyncHTTPClient()
 

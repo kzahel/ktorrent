@@ -18,11 +18,8 @@ class Client(object):
 
     def do_trackers(self):
         for hash,torrent in self.torrents.iteritems():
-            if torrent.started():
-                if len(torrent.connections) == 0:
-                    if torrent.meta:
-                        if 'announce' in torrent.meta or 'announce-list' in torrent.meta:
-                            torrent.do_trackers()
+            if torrent.tracker_on():
+                torrent.do_trackers()
 
     def peer_think(self):
         for hash,torrent in self.torrents.iteritems():

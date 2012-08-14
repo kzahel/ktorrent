@@ -69,6 +69,15 @@ class Torrent(object):
     def wants_more_peers(self):
         return len(self.connections) < 5 # and self.started()
 
+    def tracker_on(self):
+        return True
+        if self.started():
+            if len(self.connections) == 0:
+                if self.meta:
+                    if 'announce' in self.meta or 'announce-list' in self.meta:
+                        pass
+
+
     @gen.engine
     def do_trackers(self, callback=None):
         assert(len(self.hash) == 20)
@@ -196,7 +205,10 @@ class Torrent(object):
 
     def save_attributes(self):
         saveattrs = {}
-        persisted = Settings.get(['torrents',self.hash,'attributes'])
+        try:
+            persisted = Settings.get(['torrents',self.hash,'attributes'])
+        except KeyError:
+            persisted = {}
         for k in self._attributes:
 
             if k in persisted and self._attributes[k] != persisted[k] or \
