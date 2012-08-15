@@ -30,7 +30,7 @@ class Torrent(object):
     persist_keys = ['upload_limit','status','queue_position'] # store in the settings
     #bits: ['started', 'checking', 'start after check', 'checked', 'error', 'paused', 'queued', 'loaded']
 
-    _default_attributes = {'status':0, 'queue_position':-1, 'upload_limit':0} # persist this...
+    _default_attributes = {'status':1, 'queue_position':-1, 'upload_limit':0} # persist this...
 
     @classmethod
     def register_althash(cls, torrent):
@@ -99,10 +99,14 @@ class Torrent(object):
         return '<Torrent %s (meta:%s, %s)>' % (hexlify(self.hash), True if self.meta else False, self.get_summary())
 
     def throttled(self):
-        return self.bitcounter.recent() > self.max_dl_rate()
+        if self.max_dl_rate() > 0:
+            return self.bitcounter.recent() > self.max_dl_rate()
+        else:
+            return False
 
     def max_dl_rate(self):
-        return 8192
+        return 0
+        #return 8192
         #return 16384 * 2
         #return 16384 * 1024
 
@@ -215,7 +219,7 @@ class Torrent(object):
                     self._attributes[k] != self._default_attributes[k]:
                 saveattrs[k] = self._attributes[k]
         if saveattrs:
-            logging.info('saved attributes %s' % saveattrs)
+            #logging.info('saved attributes %s' % saveattrs)
             path = ['torrents',self.hash,'attributes']
             Settings.set(path, saveattrs)
             saved = Settings.get(path)

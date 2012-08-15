@@ -557,7 +557,8 @@ class Connection(object):
         #    return
 
         if torrent.throttled():
-            #logging.info('conn throttled - exit')
+            if options.verbose > 2:
+                logging.info('conn throttled - exit')
             return
 
         if not torrent or not torrent.meta:
@@ -589,6 +590,7 @@ class Connection(object):
                         else:
                             break
                     else:
+                        # TODO -- fix this so that it can happen more frequently!!!
                         if options.verbose > 1:
                             logging.info('selected special high priority piece %s' % cur_piece)
 

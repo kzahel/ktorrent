@@ -25,6 +25,8 @@ define('static_path',default=os.path.join(home,'ktorrent/static'), type=str)
 define('resume_file',default=os.path.join(home,'ktorrent/resume.dat'), type=str)
 define('template_path',default=os.path.join(home,'ktorrent/templates'), type=str)
 
+define('tracker_proxy',default='http://127.0.0.1:6969', type=str)
+
 define('startup_connect_to', default='', type=str)
 define('startup_connect_torrent', default='', type=str)
 define('startup_connect_to_hash', default='', type=str)
@@ -162,7 +164,7 @@ btserver.bind(options.port, '')
 btserver.start()
 logging.info('started btserver')
 
-tornado.ioloop.PeriodicCallback( Connection.make_piece_request, 1000 * 5, io_loop=ioloop ).start()
+tornado.ioloop.PeriodicCallback( Connection.make_piece_request, 1000 * 1, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( Connection.get_metainfo, 1000 * 1, io_loop=ioloop ).start() # better to make event driven
 tornado.ioloop.PeriodicCallback( Client.tick, 1000 * 1, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( client.do_trackers, 1000 * 1, io_loop=ioloop ).start()

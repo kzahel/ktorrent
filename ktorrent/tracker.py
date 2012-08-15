@@ -4,6 +4,8 @@ import bencode
 import binascii
 import time
 import urllib
+import base64
+from tornado.options import options
 
 from util import decode_peer
 
@@ -20,6 +22,7 @@ import logging
 class Tracker(object):
     http_client = None
     instances = {}
+    proxy_mode = True
 
     def get_key(self):
         return self.url
@@ -66,10 +69,18 @@ class Tracker(object):
 
         self.last_announce = time.time()
 
-        response = yield gen.Task( self.http_client.fetch, '%s?info_hash=%s&compact=1' % (self.url, urllib.quote(self.infohash) ) )
+
+        response = yield gen.Task( self.http_client.fetch, '%s?_tracker_url=%s&info_hash=%s&compact=1&callback=mycallback' % (options.tracker_proxy, urllib.quote(self.url), urllib.quote(self.infohash) ) )
 
         if response.code == 200:
-            data = bencode.bdecode(response.body)
+
+            if self.proxy_mode:
+                rawdata = response.body
+                b64data = rawdata[ rawdata.find('(')+2 : rawdata.find(')', len(rawdata) - 1)-1 ]
+                data = bencode.bdecode(base64.b64decode(b64data))
+
+            else:
+                data = bencode.bdecode(response.body)
 
             peerdata = []
             if 'peers' in data:
