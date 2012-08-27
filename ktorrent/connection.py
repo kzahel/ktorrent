@@ -101,7 +101,7 @@ class Connection(object):
     def adopt_websocket(cls, handler):
         # create a connection that uses a websocket stream
         conn = cls(handler.stream_adapter, (), cls.application)
-        conn.when_connected()
+        conn.when_connected(force_torrent_protocol=True)
         return conn
 
     def send_extension_handshake(self):
@@ -338,13 +338,27 @@ class Connection(object):
         if self.stream._has_connected:
             self.when_connected()
 
-    def when_connected(self):
+    def when_connected(self, force_torrent_protocol=False):
         try:
             #logging.info('attempting read of len %s' % constants.handshake_length)
-            self.stream.read_bytes(constants.handshake_length, self.got_handshake)
+            # todo -- "peek" into handshake and see if it's an HTTP-like request.
+            if force_torrent_protocol:
+                self.stream.read_bytes(constants.handshake_length, self.got_handshake)
+            else: # tries to guess at the protocol
+                self.stream._add_io_state(self.stream.io_loop.READ)
+                self.stream._buffer_grown_callback = self.received_data
+                
         except IOError:
             logging.warn('failed reading handshake (hopefully on_connection_close is called)')
             pass
+
+    def received_data(self):
+        if self.stream._read_buffer[0].startswith('GET '): # looks like HTTP
+            self.stream._buffer_grown_callback = None
+            self.frontend_server.handle_stream(self.stream, self.address)
+        else:
+            self.stream._buffer_grown_callback = None
+            self.stream.read_bytes(constants.handshake_length, self.got_handshake)
 
     def on_connection_close(self):
         # remove piece timeouts...

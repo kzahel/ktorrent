@@ -107,18 +107,20 @@ routes = { 'BITFIELD': BitmaskHandler,
            'PIECE': PieceHandler
            }
 
-from frontend import IndexHandler, StatusHandler, APIHandler, PingHandler, VersionHandler, BtappHandler, PairHandler, request_logger, ProxyHandler, APIUploadHandler, APIUploadWebSocketHandler
+from frontend import IndexHandler, StatusHandler, APIHandler, PingHandler, VersionHandler, BtappHandler, PairHandler, request_logger, ProxyHandler, APIUploadHandler, APIUploadWebSocketHandler, GUIHandler
 
 frontend_routes = [
     ('/?', IndexHandler),
     ('/static/.?', tornado.web.StaticFileHandler),
     ('/gui/pingimg', PingHandler),
     ('/gui/pair/?', PairHandler),
+    ('/gui/?', GUIHandler),
     ('/proxy/?', ProxyHandler),
     ('/version/?', VersionHandler),
     ('/statusv2/?', StatusHandler),
     ('/api/upload/?', APIUploadHandler),
     ('/api/upload/ws/?', APIUploadWebSocketHandler),
+    ('/wsclient/?', APIUploadWebSocketHandler),
     ('/api/?', APIHandler),
     ('/btapp/?', BtappHandler)
 ]
@@ -152,6 +154,7 @@ Connection.application = application
 settings['log_function'] = request_logger
 frontend_application = tornado.web.Application(frontend_routes, **settings)
 frontend_server = tornado.httpserver.HTTPServer(frontend_application, io_loop=ioloop)
+Connection.frontend_server = frontend_server
 try:
     frontend_server.bind(options.frontend_port, '')
     frontend_server.start()

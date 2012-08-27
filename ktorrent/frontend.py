@@ -32,7 +32,38 @@ class BaseHandler(tornado.web.RequestHandler):
 
 class IndexHandler(BaseHandler):
     def get(self):
-        pass###
+        logging.info('unhandled route')
+
+from apidefs import TorrentDef
+
+class GUIHandler(BaseHandler):
+    def get(self):
+        client = Client.instance()
+
+        if 'list' in self.request.arguments:
+            torrents = []
+            for h,t in client.torrents.iteritems():
+                hash = hexlify(h)
+                r = [None for _ in range(len(TorrentDef.coldefs))]
+                r[TorrentDef.coldefnames['hash']] = hash
+
+                t_attrs = t.get_attributes()
+
+                for key in t_attrs:
+                    if key in TorrentDef.coldefnames:
+                        r[TorrentDef.coldefnames[key]] = t_attrs[key]
+                torrents.append(r)
+            self.writeout(torrents)
+        elif 'action' in self.request.arguments:
+
+            action = self.get_argument('action')
+            if action == 'getsettings':
+                rows = []
+                rows.append(['bind_port', 0, options.port, {}])
+                ret = {'settings':rows}
+                self.writeout(ret)
+
+
 import binascii
 class StatusHandler(BaseHandler):
     def get(self):
@@ -261,6 +292,8 @@ class APIUploadWebSocketHandler(WebSocketHandler):
       return val
 
   def on_close(self):
+      if options.verbose > 10:
+          logging.info( "WebSocket closed" )
       self.is_closed = True
       self.stream_adapter.run_close_callback()
 
