@@ -3,6 +3,7 @@ import logging
 import urllib
 from connection import Connection
 from tornado.websocket import WebSocketHandler
+from tornado import iostream
 from torrent import Torrent
 from client import Client
 from session import Session
@@ -10,6 +11,7 @@ from peer import Peer
 import json
 from cgi import escape
 import signal
+import socket
 import pdb
 import sys
 from tornado.options import options
@@ -197,6 +199,7 @@ class ProxyHandler(BaseHandler):
 
 
 import collections
+import time
 from tornado.iostream import _merge_prefix
 
 class APIHandler(BaseHandler):
@@ -205,62 +208,80 @@ class APIHandler(BaseHandler):
     def post(self):
         self.write( dict( foo = 23 ) )
 
+from tornado import gen
 
-class APIUploadHandler(BaseHandler):
-    def get(self): pass
+
+
+
+class WebSocketProxyHandler(WebSocketHandler):
+    connect_timeout = 20
+
+    def open(self):
+        self._read_buffer = collections.deque()
+        self.handshaking = True
+        self.is_closed = False
+
+        logging.info('ws proxy open')
+
+        parts = self.get_argument('target').split(':')
+        self.target_host = str(parts[0])
+        self.target_port = int(parts[1])
+        
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+
+        self.target_stream = iostream.IOStream(s, io_loop=ioloop)
+        self.target_stream._always_callback = True
+        self.target_stream._buffer_grown_callback = self.target_has_new_data
+        ioloop.add_timeout( time.time() + WebSocketProxyHandler.connect_timeout, self.check_target_connected )
+        self.addr = (self.target_host, self.target_port)
+        #self.addr = ('174.118.104.169', 10834)
+        logging.info('connecting to target %s, %s' % self.addr)
+        self.target_stream.connect(self.addr, callback=self.connected_to_target )
+
+    def target_has_new_data(self):
+        #logging.warn('target has new data!')
+        while len(self.target_stream._read_buffer) > 0:
+            chunk = self.target_stream._read_buffer.popleft()
+            #logging.info('writing data to websocket %s' % [chunk] )
+            self.write_message( chunk, binary=True )
+
+    def check_target_connected(self):
+        if self.target_stream._connecting:
+            logging.error('timeout connecting!')
+            self.close()
+
+    def connected_to_target(self):
+        if self.target_stream.error:
+            logging.error('error connecting to target')
+            import pdb; pdb.set_trace()
+        logging.info('connected to target!')
+        self.target_stream._add_io_state(ioloop.READ)
+        self.try_flush()
+
+    def on_message(self, msg):
+        #logging.info('ws proxy message %s' % [msg])
+        self._read_buffer.append(msg)
+        self.try_flush()
+
+    def try_flush(self):
+        if self.target_stream._connecting:
+            return
+        while len(self._read_buffer) > 0:
+            chunk = self._read_buffer.popleft()
+            #logging.info('writing data to target_stream %s' % [chunk] )
+            self.target_stream.write( chunk )
+
+    def on_close(self):
+        logging.info('ws proxy on close')
 
 
 class APIUploadWebSocketHandler(WebSocketHandler):
-  msgtypes = {'c':'create-session',
-              'p':'payload'}
-  msgencodings = {'j': 'json',
-                  'r': 'raw'}
-
 
   def open(self):
-      """ web socket used for sending file data for upload.
-      q: request based or push based?
-
-      seems to make sense to have this server make requests for the
-      pieces using a torrent-like protocol. only metadata does not
-      exist yet.
-
-      browser client initiates websocket with array of files and their
-      lengths application then makes requests for pieces. browser
-      client keeps initiating connection with the session id and
-      responding to upload requests.
-
-      q: can filereader seek? or are reads sequential? likely only
-      sequential, in which case request-response does not make much
-      sense. better to sequentially write data as it comes in.
-
-      hash as the data comes in, before it is written to disk (speedier)
-
-      it may not be possible to do that easily because torrent
-      metadata files may have to be alphabetically ordered
-
-      need to keep a map of paths in the torrent to paths on disk --
-      actually, we never get the local disk path. that's the whole
-      problem. everything has to be duplicated. If only we were able
-      to find the file on disk. Perhaps in some cases, we will be able
-      to... does the OS provide a nice API for searching for a file?
-      windows, osx may...
-
-      seeding may want to be very smart and detect moved files. if
-      file is the right size and one contained piece has a valid hash,
-      that seems good enough.
-      
-      --- a while ago had an idea of a torrent metadata type that
-          stores a bunch of torrents, like a whole season or a show or
-          something
-
-
-
-      """
-
       self.read_buf = collections.deque()
       self.handshaking = True
       self.is_closed = False
+      self.target_stream = None
       if options.verbose > 10:
           logging.info( "WebSocket opened" )
 
@@ -277,7 +298,7 @@ class APIUploadWebSocketHandler(WebSocketHandler):
       if self.handshaking:
           if options.verbose > 10:
               logging.info('conn adopt')
-          conn = Connection.adopt_websocket(self)
+          conn = Connection.adopt_websocket(self, target_stream=self.target_stream)
           self.handshaking = False
       else:
           if options.verbose > 10:
@@ -302,6 +323,7 @@ def request_logger(handler):
         logging.info('finished handler %s' % handler)
 
 from tornado.util import bytes_type, b
+
 
 class WebSocketIOStreamAdapter(object):
     def __init__(self, handler):

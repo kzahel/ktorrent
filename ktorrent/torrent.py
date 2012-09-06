@@ -435,7 +435,7 @@ class Torrent(object):
         else:
             self._file_byte_accum = [0]
         self.bitmask = self.get_bitmask()
-        if options.verbose > 2:
+        if options.verbose > 10:
             logging.info('bitmask is %s' % ''.join(map(str,self.bitmask)))
         self.populate_pieces()
         Torrent.Connection.notify_torrent_has_bitmask(self)
