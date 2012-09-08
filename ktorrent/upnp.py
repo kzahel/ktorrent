@@ -4,12 +4,11 @@ import miniupnpc
 u=miniupnpc.UPnP()
 u.discoverdelay=2000
 i = u.discover()
+print 'found',i
 if i>0:
-    print 'found',i
-    import pdb; pdb.set_trace()
     url = u.selectigd()
-    external = 31226
+    external = 39342
     internal = 22
-    result=u.addportmapping(external, 'TCP', u.lanaddr, internal)
+    result=u.addportmapping(external, 'TCP', u.lanaddr, internal,'kyle port %u' % internal,'')
 else:
     print 'no devices discovered'

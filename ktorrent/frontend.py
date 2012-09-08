@@ -214,7 +214,7 @@ from tornado import gen
 
 
 class WebSocketProxyHandler(WebSocketHandler):
-    connect_timeout = 20
+    connect_timeout = 10
 
     def open(self):
         self._read_buffer = collections.deque()
@@ -232,14 +232,26 @@ class WebSocketProxyHandler(WebSocketHandler):
         self.target_stream = iostream.IOStream(s, io_loop=ioloop)
         self.target_stream._always_callback = True
         self.target_stream._buffer_grown_callback = self.target_has_new_data
+        self.target_stream.set_close_callback( self.target_stream_closed )
         ioloop.add_timeout( time.time() + WebSocketProxyHandler.connect_timeout, self.check_target_connected )
         self.addr = (self.target_host, self.target_port)
-        #self.addr = ('174.118.104.169', 10834)
+        #self.addr = ('110.174.252.130', 20862)
+        #self.addr = ('84.215.241.100',53566 )
         logging.info('connecting to target %s, %s' % self.addr)
         self.target_stream.connect(self.addr, callback=self.connected_to_target )
 
+    def target_stream_closed(self):
+        if self.ws_connection and not self.ws_connection.stream.closed():
+            self.doclose("endpoint closed")
+
+    def doclose(self, reason=None):
+        if reason:
+            logging.warn('closing, reason %s' % reason)
+            if self.ws_connection:
+                self.close(reason)
+
     def target_has_new_data(self):
-        #logging.warn('target has new data!')
+        #logging.warn('target has new data! %s' % self.target_stream._read_buffer)
         while len(self.target_stream._read_buffer) > 0:
             chunk = self.target_stream._read_buffer.popleft()
             #logging.info('writing data to websocket %s' % [chunk] )
@@ -248,14 +260,16 @@ class WebSocketProxyHandler(WebSocketHandler):
     def check_target_connected(self):
         if self.target_stream._connecting:
             logging.error('timeout connecting!')
-            self.close()
+            self.doclose("endpoint timeout")
 
     def connected_to_target(self):
         if self.target_stream.error:
             logging.error('error connecting to target')
-            import pdb; pdb.set_trace()
+            self.doclose("error connecting")
+            return
+            #import pdb; pdb.set_trace()
         logging.info('connected to target!')
-        self.target_stream._add_io_state(ioloop.READ)
+        #self.target_stream._add_io_state(ioloop.READ)
         self.try_flush()
 
     def on_message(self, msg):
@@ -269,10 +283,15 @@ class WebSocketProxyHandler(WebSocketHandler):
         while len(self._read_buffer) > 0:
             chunk = self._read_buffer.popleft()
             #logging.info('writing data to target_stream %s' % [chunk] )
-            self.target_stream.write( chunk )
+            if not self.target_stream.closed():
+                self.target_stream.write( chunk )
+            #self.target_stream._add_io_state(ioloop.READ)
 
     def on_close(self):
+        self._read_buffer = None
         logging.info('ws proxy on close')
+        if not self.target_stream.closed():
+            self.target_stream.close()
 
 
 class APIUploadWebSocketHandler(WebSocketHandler):
