@@ -254,8 +254,20 @@ class WebSocketProxyHandler(WebSocketHandler):
         #logging.warn('target has new data! %s' % self.target_stream._read_buffer)
         while len(self.target_stream._read_buffer) > 0:
             chunk = self.target_stream._read_buffer.popleft()
-            #logging.info('writing data to websocket %s' % [chunk] )
+            #logging.info('writing data to websocket %s' % len(chunk) )
+            if len(self.request.connection.stream._write_buffer) > 1:
+                logging.error('have data in write buffer! slow down read!')
+                self.target_stream._add_io_state(None)
+                #ioloop.add_timeout( time.time() + 1, ...
+                assert( not self.target_stream._write_callback )
+                self.target_stream._write_callback = self.resume_target_read
+                
             self.write_message( chunk, binary=True )
+
+    def resume_target_read(self):
+        logging.info('resume read!')
+        self.target_stream._add_io_state(ioloop.READ)
+        
 
     def check_target_connected(self):
         if self.target_stream._connecting:
@@ -273,9 +285,14 @@ class WebSocketProxyHandler(WebSocketHandler):
         self.try_flush()
 
     def on_message(self, msg):
-        #logging.info('ws proxy message %s' % [msg])
-        self._read_buffer.append(msg)
         self.try_flush()
+        #logging.info('ws proxy message %s' % [msg])
+        if not self.target_stream._connecting:
+            #logging.info('writing data to target_stream %s, %s' % (len(msg),time.time() ))
+            self.target_stream.write(msg)
+        else:
+            
+            self._read_buffer.append(msg)
 
     def try_flush(self):
         if self.target_stream._connecting:
@@ -283,6 +300,7 @@ class WebSocketProxyHandler(WebSocketHandler):
         while len(self._read_buffer) > 0:
             chunk = self._read_buffer.popleft()
             #logging.info('writing data to target_stream %s' % [chunk] )
+            #logging.info('writing data to target_stream %s, %s' % (len(chunk),time.time() ))
             if not self.target_stream.closed():
                 self.target_stream.write( chunk )
             #self.target_stream._add_io_state(ioloop.READ)
