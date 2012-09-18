@@ -287,7 +287,7 @@ class WebSocketProxyHandler(WebSocketHandler):
     def on_message(self, msg):
         self.try_flush()
         #logging.info('ws proxy message %s' % [msg])
-        if not self.target_stream._connecting:
+        if not self.target_stream._connecting and not self.target_stream.closed():
             #logging.info('writing data to target_stream %s, %s' % (len(msg),time.time() ))
             self.target_stream.write(msg)
         else:
