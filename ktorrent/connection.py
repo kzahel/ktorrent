@@ -98,9 +98,9 @@ class Connection(object):
         conn.when_connected()
 
     @classmethod
-    def adopt_websocket(cls, handler):
+    def adopt_websocket(cls, stream):
         # create a connection that uses a websocket stream
-        conn = cls(handler.stream_adapter, (), cls.application)
+        conn = cls(stream, (), cls.application)
         conn.when_connected(force_torrent_protocol=True)
         return conn
 
@@ -353,9 +353,16 @@ class Connection(object):
             pass
 
     def received_data(self):
+        #logging.info("RECV DATA %s" % [self.stream._read_buffer[0]])
         if self.stream._read_buffer[0].startswith('GET '): # looks like HTTP
             self.stream._buffer_grown_callback = None
             self.frontend_server.handle_stream(self.stream, self.address)
+        elif self.stream._read_buffer[0] == "<policy-file-request/>\x00":
+            self.stream.write("""<?xml version="1.0"?>
+<cross-domain-policy><allow-access-from domain="*" to-ports="*" />
+</cross-domain-policy>""")
+            self.stream.close()
+            # flash websocket shim web-socket-js
         else:
             self.stream._buffer_grown_callback = None
             self.stream.read_bytes(constants.handshake_length, self.got_handshake)

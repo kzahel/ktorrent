@@ -153,33 +153,28 @@ class UTHandler(BTMessageHandler):
             logging.info('handling %s message' % ext_msg_str)
             if ext_msg_str == 'ut_metadata':
 
-                i = self.request.payload.find('total_size') # this payload is not bencoded (the payload includes the piece outside of the bencoded dictionary, so we have to search (unfortunate) ...
-                if i != -1:
-                    # this is a piece request response (if an exception occurs here, then perhaps it is another type of message. should verify the msg_type
-                    j = self.request.payload.find('ee',i)
-                    if j != -1:
-                        data = self.request.payload[1:j+2]
-                        meta = bencode.bdecode(data)
-                        rest = self.request.payload[j+2:]
-                        logging.info('metadata piece request response of len! %s' %len(rest))
-                        self.request.connection.insert_meta_piece(meta['piece'],rest)
+
+                info = bencode.bdecode(self.request.payload[1:])
+
+                tor_meta_type = tor_meta_codes[ info['msg_type'] ]
+
+                if tor_meta_type == 'request':
+                    if self.request.connection.torrent and self.request.connection.torrent.meta:
+                        logging.info('have torrent file... will service the metadata chunk request!')
+                        payload = self.request.connection.torrent.get_metadata_piece_payload(info['piece'])
+                        self.send_message('UTORRENT_MSG', chr(their_ext_msg_type) + payload)
+                    else:
+                        logging.error('dont have torrent matadata cant serve it!')
+                        # todo: send deny message
+                        deny_payload = bencode.bencode( { 'msg_type': tor_meta_codes_r['reject'] } )
+                        self.send_message('UTORRENT_MSG', chr(their_ext_msg_type) + deny_payload)
                 else:
-                    info = bencode.bdecode( self.request.payload[1:] )
-                    tor_meta_type = tor_meta_codes[ info['msg_type'] ]
+                    metalen = len(bencode.bencode(info))
+                    rest = self.request.payload[metalen+1:]
+                    logging.info('metadata piece request response of len! %s' %len(rest))
+                    self.request.connection.insert_meta_piece(meta['piece'],rest)
 
-                    if tor_meta_type == 'request':
-
-                        if self.request.connection.torrent and self.request.connection.torrent.meta:
-                            logging.info('have torrent file... will service the metadata chunk request!')
-                            payload = self.request.connection.torrent.get_metadata_piece_payload(info['piece'])
-                            self.send_message('UTORRENT_MSG', chr(their_ext_msg_type) + payload)
-                        else:
-                            logging.error('dont have torrent matadata cant serve it!')
-                            # todo: send deny message
-                            deny_payload = bencode.bencode( { 'msg_type': tor_meta_codes_r['reject'] } )
-
-
-                            self.send_message('UTORRENT_MSG', chr(their_ext_msg_type) + deny_payload)
+                            
             elif ext_msg_str == 'ut_pex':
                 self.handle_pex()
             else:

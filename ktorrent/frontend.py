@@ -12,6 +12,7 @@ import json
 from cgi import escape
 import signal
 import socket
+import base64
 import pdb
 import sys
 from tornado.options import options
@@ -220,6 +221,7 @@ class WebSocketProxyHandler(WebSocketHandler):
         self._read_buffer = collections.deque()
         self.handshaking = True
         self.is_closed = False
+        self._nobinary = 'flash' in self.request.arguments
 
         logging.info('ws proxy open')
 
@@ -261,8 +263,11 @@ class WebSocketProxyHandler(WebSocketHandler):
                 #ioloop.add_timeout( time.time() + 1, ...
                 assert( not self.target_stream._write_callback )
                 self.target_stream._write_callback = self.resume_target_read
-                
-            self.write_message( chunk, binary=True )
+
+            if self._nobinary:
+                self.write_message( base64.b64encode(chunk) )
+            else:
+                self.write_message( chunk, binary=True )
 
     def resume_target_read(self):
         logging.info('resume read!')
@@ -285,13 +290,14 @@ class WebSocketProxyHandler(WebSocketHandler):
         self.try_flush()
 
     def on_message(self, msg):
+        if (self._nobinary or type(msg) == type(u'')):
+            msg = base64.b64decode(msg)
         self.try_flush()
         #logging.info('ws proxy message %s' % [msg])
         if not self.target_stream._connecting and not self.target_stream.closed():
             #logging.info('writing data to target_stream %s, %s' % (len(msg),time.time() ))
             self.target_stream.write(msg)
         else:
-            
             self._read_buffer.append(msg)
 
     def try_flush(self):
@@ -312,48 +318,47 @@ class WebSocketProxyHandler(WebSocketHandler):
             self.target_stream.close()
 
 
-class APIUploadWebSocketHandler(WebSocketHandler):
+class WebSocketProtocolHandler(WebSocketHandler):
 
-  def open(self):
-      self.read_buf = collections.deque()
-      self.handshaking = True
-      self.is_closed = False
-      self.target_stream = None
-      if options.verbose > 10:
-          logging.info( "WebSocket opened" )
+    def open(self):
+        self.read_buf = collections.deque()
+        self.handshaking = True
+        self.is_closed = False
+        self.flash = 'flash' in self.request.arguments
+        if options.verbose > 10:
+            logging.info( "WebSocket opened" )
+            self.stream_adapter = WebSocketIOStreamAdapter(self, flash=self.flash)
 
-      self.stream_adapter = WebSocketIOStreamAdapter(self)
+    def on_message(self, message):
+        if options.verbose > 10:
+            logging.info('got ws message %s' % [ message ])
+        if self.flash:
+            self.read_buf.append(base64.b64decode(message))
+        else:
+            self.read_buf.append(message)
 
-      # ask for a session id
-      # packets send like {sessid, fileno, offset, len}
+        if self.handshaking:
+            if options.verbose > 10:
+                logging.info('conn adopt')
+            conn = Connection.adopt_websocket(self.stream_adapter)
+            self.handshaking = False
+        else:
+            if options.verbose > 10:
+                logging.info('try read callback')
+            self.stream_adapter.try_read_callback()
 
-  def on_message(self, message):
-      if options.verbose > 10:
-          logging.info('got ws message %s' % [ message ])
-      self.read_buf.append(message)
+    def get_read_buf_sz(self):
+        val = sum(map(len, self.read_buf))
+        if options.verbose > 10:
+            logging.info('check read buf sz %s, %s' % (val, self.read_buf))
+        return val
 
-      if self.handshaking:
-          if options.verbose > 10:
-              logging.info('conn adopt')
-          conn = Connection.adopt_websocket(self, target_stream=self.target_stream)
-          self.handshaking = False
-      else:
-          if options.verbose > 10:
-              logging.info('try read callback')
-          self.stream_adapter.try_read_callback()
-          # conn.new_websocket_message( message )
+    def on_close(self):
+        if options.verbose > 10:
+            logging.info( "WebSocket closed" )
+        self.is_closed = True
+        self.stream_adapter.run_close_callback()
 
-  def get_read_buf_sz(self):
-      val = sum(map(len, self.read_buf))
-      if options.verbose > 10:
-          logging.info('check read buf sz %s, %s' % (val, self.read_buf))
-      return val
-
-  def on_close(self):
-      if options.verbose > 10:
-          logging.info( "WebSocket closed" )
-      self.is_closed = True
-      self.stream_adapter.run_close_callback()
 
 def request_logger(handler):
     if options.verbose > 1:
@@ -361,11 +366,13 @@ def request_logger(handler):
 
 from tornado.util import bytes_type, b
 
-
 class WebSocketIOStreamAdapter(object):
-    def __init__(self, handler):
+    """ pretends to be iostream instance used by connection.py """
+
+    def __init__(self, handler, flash=False):
         self._read_callback = None
         self.handler = handler
+        self.flash = flash
         self._close_callback = None
 
     def run_close_callback(self):
@@ -403,7 +410,10 @@ class WebSocketIOStreamAdapter(object):
     def write(self, msg, callback=None):
         #data = bytearray(msg)
         #logging.info('writing back msg %s' % [data])
-        self.handler.write_message(msg, binary=True) # make sure it's binary...
+        if self.flash:
+            self.handler.write_message(base64.b64encode(msg), binary=False) # make sure it's binary...
+        else:
+            self.handler.write_message(msg, binary=True) # make sure it's binary...
         # callback immediately
         if callback:
             ioloop.add_callback( callback )
