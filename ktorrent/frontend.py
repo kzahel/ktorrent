@@ -223,7 +223,7 @@ class WebSocketProxyHandler(WebSocketHandler):
         self.is_closed = False
         self._nobinary = 'flash' in self.request.arguments
 
-        logging.info('ws proxy open')
+        #logging.info('ws proxy open')
 
         parts = self.get_argument('target').split(':')
         self.target_host = str(parts[0])
@@ -239,7 +239,7 @@ class WebSocketProxyHandler(WebSocketHandler):
         self.addr = (self.target_host, self.target_port)
         #self.addr = ('110.174.252.130', 20862)
         #self.addr = ('84.215.241.100',53566 )
-        logging.info('connecting to target %s, %s' % self.addr)
+        #logging.info('connecting to target %s, %s' % self.addr)
         self.target_stream.connect(self.addr, callback=self.connected_to_target )
 
     def target_stream_closed(self):
@@ -248,7 +248,7 @@ class WebSocketProxyHandler(WebSocketHandler):
 
     def doclose(self, reason=None):
         if reason:
-            logging.warn('closing, reason %s' % reason)
+            #logging.warn('closing, reason %s' % reason)
             if self.ws_connection:
                 self.close(reason)
 
@@ -276,7 +276,7 @@ class WebSocketProxyHandler(WebSocketHandler):
 
     def check_target_connected(self):
         if self.target_stream._connecting:
-            logging.error('timeout connecting!')
+            #logging.error('timeout connecting!')
             self.doclose("endpoint timeout")
 
     def connected_to_target(self):
@@ -285,7 +285,7 @@ class WebSocketProxyHandler(WebSocketHandler):
             self.doclose("error connecting")
             return
             #import pdb; pdb.set_trace()
-        logging.info('connected to target!')
+        #logging.info('connected to target!')
         #self.target_stream._add_io_state(ioloop.READ)
         self.try_flush()
 
@@ -313,7 +313,7 @@ class WebSocketProxyHandler(WebSocketHandler):
 
     def on_close(self):
         self._read_buffer = None
-        logging.info('ws proxy on close')
+        #logging.info('ws proxy on close')
         if not self.target_stream.closed():
             self.target_stream.close()
 
@@ -423,3 +423,168 @@ class WebSocketIOStreamAdapter(object):
 
     def writing(self):
         return False
+
+import tornado.netutil
+
+
+class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
+    start_port = 32000
+    end_port = 65000
+    byport = {}
+    bytoken = {}
+
+    def __init__(self, port):
+        self.incoming_queue = []
+        self.websocket_handler = []
+        self.error = False
+        self.port = port
+        tornado.httpserver.TCPServer.__init__(self, io_loop=ioloop)
+        try:
+            self.listen(self.port)
+            logging.info('server listening on %s' % self.port)
+        except:
+            self.error = True
+
+        self.token = sha1(str(random.random())).hexdigest()[:8]
+        self.byport[self.port] = self
+        self.bytoken[self.token] = self
+
+    def handle_stream(self, stream, address):
+        self.incoming_queue.append( (stream, address) )
+        self.try_handoff()
+
+    def notify_incoming_closed(self):
+        pass
+        #if not self.websocket_handler.request.connection.stream.closed():
+        #    #self.websocket_handler.close('attached incoming connection closed')
+        #self.websocket_handler = None
+
+    def try_handoff(self):
+        if self.websocket_handler and self.incoming_queue:
+            incoming_conn = self.incoming_queue.pop(0)
+            self.websocket_handler.handle_incoming_stream( *incoming_conn )
+        #logging.info("NEW INCOMING STREAM %s" % [stream, address])
+        # pipe this stream into the websocket (handler)
+        #self.handler.handle_incoming_stream(stream, address)
+        #self.check_timeout = ioloop.add_timeout( time.time() + 10, self.check_close )
+
+    def add_websocket_handler(self, handler):
+        if self.websocket_handler:
+            logging.error('already have websocket handler')
+        self.websocket_handler = handler
+        self.try_handoff()
+
+from hashlib import sha1
+import random
+class WebSocketIncomingProxyHandler(WebSocketHandler):
+    """ act as a listening socket for me """
+
+    def open(self):
+        self.incoming_stream = None
+
+        if 'token' in self.request.arguments:
+            token = self.get_argument('token')
+            if token in IncomingConnectionListenProxy.bytoken:
+                logging.info('resume listen by token')
+                self.listen_proxy = IncomingConnectionListenProxy.bytoken[token]
+                self.listen_proxy.add_websocket_handler(self)
+                return
+            else:
+                self.close('not a valid token')
+                return
+            
+
+        i = IncomingConnectionListenProxy.start_port
+        while i < IncomingConnectionListenProxy.end_port:
+            if i not in IncomingConnectionListenProxy.byport:
+                break
+            i += 1
+        if i == IncomingConnectionListenProxy.end_port:
+            self.close('no ports available')
+            return
+
+        self.listen_port = i
+        logging.info("INCOMING PROXY OPEN %s" % self.listen_port)
+
+        if self.listen_port in IncomingConnectionListenProxy.byport:
+            self.listen_proxy = IncomingConnectionListenProxy.byports[self.listen_port]
+        else:
+            self.listen_proxy = IncomingConnectionListenProxy(self.listen_port)
+            self.write_message({'port':self.listen_proxy.port, 'token':self.listen_proxy.token})
+
+        if self.listen_proxy.error:
+            self.close('port listen error')
+            return
+
+        self.listen_proxy.add_websocket_handler(self)
+
+    def send_notification(self, address):
+        logging.warn('send new connected address')
+        self.write_message( {'address':address } )
+
+    def handle_incoming_stream(self, stream, address):
+        logging.info("got a new incoming connection at %s" % [address])
+        if stream.closed():
+            logging.error('handle incoming stream on closed stream??')
+            return
+        self.send_notification(address)
+        self.incoming_stream = stream
+        self.incoming_stream.set_close_callback( self.on_incoming_close )
+        self.incoming_stream._buffer_grown_callback = self.handle_incoming_stream_chunk
+        self.incoming_stream._add_io_state(ioloop.READ)
+
+    def on_incoming_close(self):
+        logging.error('incoming stream close')
+        if not self.request.connection.stream.closed():
+            self.close('incoming stream closed')
+        #self.listen_proxy.notify_incoming_closed()
+
+    def incoming_stream_resume_read(self):
+        self.incoming_stream._add_io_state(ioloop.READ)
+
+    def websocket_resume_read(self):
+        self.request.connection.stream._add_io_state(ioloop.READ)
+
+    def handle_incoming_stream_chunk(self):
+        data = self.incoming_stream._read_buffer
+
+        #logging.info("GOT CHUNK %s" % len(data))
+
+        if len(self.request.connection.stream._write_buffer) > 1:
+            logging.warn('throttle write')
+            # stop reading on incoming stream if the write to the websocket is congested
+            self.incoming_stream._add_io_state(None)
+            self.incoming_stream._write_callback = self.incoming_stream_resume_read
+
+        # WARNING!! EXCEPTIONS HERE DO NOT LOG ERRORS! (ioloop handle_read etc catch "Exception")
+        while len(self.incoming_stream._read_buffer) > 0:
+            chunk = self.incoming_stream._read_buffer.popleft()
+            self.write_message(chunk, binary=True)
+
+    def on_close(self):
+        logging.info('incoming conn proxy close')
+        if self.incoming_stream:
+            self.incoming_stream.close()
+
+    def on_message(self, msg):
+        if self.incoming_stream.closed():
+            logging.error('on_message, but websocket was closed? weird')
+            return
+
+        #logging.info("INCOMING PROXY MSG %s" % [ msg ] )
+        # send back to incoming stream
+        if not self.incoming_stream:
+            self.close('no incoming stream to write to!')
+            return
+            
+        if len(self.incoming_stream._write_buffer) > 1:
+            logging.warn('throttle read')
+            # writing to incoming stream is congested, so slow down read from websocket
+            self.request.connection.stream._add_io_state(None)
+            self.request.connection.stream._write_callback = self.websocket_stream_resume_read
+
+        self.incoming_stream.write(msg)
+
+class WebSocketTrackerProxyHandler(WebSocketHandler):
+    def open(self):
+        pass

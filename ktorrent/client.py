@@ -149,7 +149,7 @@ class Client(object):
         
     def handle_connection(self, stream, address, callback):
         # todo: fix not doing fast resume on bitmask
-        logging.info('client Handle conn! %s' % self)
+        #logging.info('client Handle conn! %s' % self)
         connection = Connection(stream, address, callback, has_connected=True)
         connection.set_client(self)
         

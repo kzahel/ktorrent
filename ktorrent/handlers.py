@@ -152,9 +152,7 @@ class UTHandler(BTMessageHandler):
 
             logging.info('handling %s message' % ext_msg_str)
             if ext_msg_str == 'ut_metadata':
-
-
-                info = bencode.bdecode(self.request.payload[1:])
+                info = bencode.bdecode(self.request.payload[1:], strict=False)
 
                 tor_meta_type = tor_meta_codes[ info['msg_type'] ]
 
@@ -172,7 +170,7 @@ class UTHandler(BTMessageHandler):
                     metalen = len(bencode.bencode(info))
                     rest = self.request.payload[metalen+1:]
                     logging.info('metadata piece request response of len! %s' %len(rest))
-                    self.request.connection.insert_meta_piece(meta['piece'],rest)
+                    self.request.connection.insert_meta_piece(info['piece'],rest)
 
                             
             elif ext_msg_str == 'ut_pex':
