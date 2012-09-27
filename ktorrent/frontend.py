@@ -556,7 +556,7 @@ class WebSocketIncomingProxyHandler(WebSocketHandler):
             self.incoming_stream._add_io_state(None)
             self.incoming_stream._write_callback = self.incoming_stream_resume_read
 
-        # WARNING!! EXCEPTIONS HERE DO NOT LOG ERRORS! (ioloop handle_read etc catch "Exception")
+        # WARNING!! EXCEPTIONS HERE DO NOT LOG ERRORS! (ioloop handle_read etc catch generic "Exception")
         while len(self.incoming_stream._read_buffer) > 0:
             chunk = self.incoming_stream._read_buffer.popleft()
             self.write_message(chunk, binary=True)
@@ -585,6 +585,51 @@ class WebSocketIncomingProxyHandler(WebSocketHandler):
 
         self.incoming_stream.write(msg)
 
-class WebSocketTrackerProxyHandler(WebSocketHandler):
+import bencode
+import functools
+
+class WebSocketUDPProxyHandler(WebSocketHandler):
+    """ open relay for sendingi/receiving UDP data, with websocket frontend """
+
     def open(self):
-        pass
+        self.socks = {}
+        #self.udpsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #self.udpsock.setblocking(False)
+        logging.info("udp proxy open")
+
+    def on_message(self, raw):
+        msg = bencode.bdecode(raw)
+        logging.info("udp proxy got msg %s" % [msg])
+        if msg['method'] == 'newsock':
+            udpsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udpsock.setblocking(False)
+            try:
+                udpsock.connect(tuple(msg['args'][0]))
+            except socket.gaierror:
+                logging.error('no internet.. send error')
+                return
+            self.socks[ udpsock.fileno() ] = udpsock
+            self.send_message( { 'id': msg['id'], 'newsock': udpsock.fileno() } )
+        #elif msg['method'] == 'sendto':
+        #    self.socks[msg['sock']].sendto( msg['args'][0], tuple(msg['args'][1]) )
+        elif msg['method'] == 'send':
+            self.socks[msg['sock']].send( msg['args'][0] )
+        elif msg['method'] == 'recvfrom':
+            import pdb; pdb.set_trace()
+            # session id?
+            ioloop.add_handler(msg['sock'], functools.partial(self.got_data, msg['sock']), ioloop.READ)
+            self.socks[msg['sock']].sendto( msg['args'][0], tuple(msg['args'][1]) )
+        elif msg['method'] == 'recv':
+            # session id?
+            logging.info('trying to read from sock')
+            ioloop.add_handler(msg['sock'], functools.partial(self.got_data, msg['sock'], msg['id']), ioloop.READ)
+        # read message
+                 
+    def send_message(self, data):
+        logging.info('respond w msg %s' % [data])
+        self.write_message( bencode.bencode( data ), binary=True )
+        
+    def got_data(self, insocknum, id, socknum, addr):
+        data = self.socks[socknum].recv(4096)
+        msg = { 'sock': socknum, 'id': id, 'data': data }
+        self.send_message( msg )
