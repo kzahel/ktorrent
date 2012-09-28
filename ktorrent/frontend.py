@@ -262,11 +262,11 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
             chunk = self.target_stream._read_buffer.popleft()
             #logging.info('writing data to websocket %s' % len(chunk) )
             if len(self.request.connection.stream._write_buffer) > 1:
-                logging.error('have data in write buffer! slow down read!')
+                logging.error('%s have data in write buffer! slow down read!' % self)
                 self.target_stream._clear_io_state()
                 #ioloop.add_timeout( time.time() + 1, ...
                 assert( not self.target_stream._write_callback )
-                self.target_stream._write_callback = self.resume_target_read
+                self.request.connection.stream._write_callback = self.resume_target_read
 
             if self._nobinary:
                 self.write_message( base64.b64encode(chunk) )
@@ -576,16 +576,13 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
     def incoming_stream_resume_read(self):
         self.incoming_stream._add_io_state(ioloop.READ)
 
-    def websocket_resume_read(self):
-        self.request.connection.stream._add_io_state(ioloop.READ)
-
     def handle_incoming_stream_chunk(self):
         data = self.incoming_stream._read_buffer
 
         #logging.info("GOT CHUNK %s" % len(data))
 
         if len(self.request.connection.stream._write_buffer) > 1:
-            logging.warn('throttle write')
+            logging.warn('%s throttle write' % self)
             # stop reading on incoming stream if the write to the websocket is congested
             self.incoming_stream._clear_io_state()
             self.incoming_stream._write_callback = self.incoming_stream_resume_read
@@ -604,6 +601,9 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
             logging.warn('%s closing incoming stream too' % self)
             self.incoming_stream.close()
 
+    def websocket_resume_read(self):
+        self.request.connection.stream._add_io_state(ioloop.READ)
+
     def on_message(self, msg):
         if self.incoming_stream.closed():
             logging.error('on_message, but websocket was closed? weird')
@@ -616,7 +616,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
             return
             
         if len(self.incoming_stream._write_buffer) > 1:
-            logging.warn('throttle read')
+            logging.warn('%s throttle read' % self)
             # writing to incoming stream is congested, so slow down read from websocket
             self.request.connection.stream._clear_io_state()
             self.request.connection.stream._write_callback = self.websocket_resume_read
