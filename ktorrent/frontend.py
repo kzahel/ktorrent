@@ -637,7 +637,7 @@ class WebSocketUDPProxyHandler(BaseWebSocketHandler):
         return self.socks[num]['sock']
 
     def on_close(self):
-        for k,data in enumerate(self.socks):
+        for k,data in self.socks.iteritems():
             data['sock'].close()
         self.socks = None
 
