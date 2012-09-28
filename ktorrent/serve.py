@@ -160,14 +160,15 @@ Connection.frontend_server = frontend_server
 try:
     frontend_server.bind(options.frontend_port, '')
     frontend_server.start()
-    logging.info('started frontend server')
+    #logging.info('started frontend server')
 except:
     logging.error('could not start frontend server')
 
 btserver = BTProtocolServer(application, io_loop=ioloop)
 btserver.bind(options.port, '')
 btserver.start()
-logging.info('started btserver')
+#logging.info('started btserver')
+logging.info('\n\n')
 
 tornado.ioloop.PeriodicCallback( Connection.make_piece_request, 1000 * 1, io_loop=ioloop ).start()
 tornado.ioloop.PeriodicCallback( Connection.get_metainfo, 1000 * 1, io_loop=ioloop ).start() # better to make event driven
