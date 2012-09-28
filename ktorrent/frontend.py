@@ -263,7 +263,7 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
             #logging.info('writing data to websocket %s' % len(chunk) )
             if len(self.request.connection.stream._write_buffer) > 1:
                 logging.error('have data in write buffer! slow down read!')
-                self.target_stream._add_io_state(None)
+                self.target_stream._clear_io_state()
                 #ioloop.add_timeout( time.time() + 1, ...
                 assert( not self.target_stream._write_callback )
                 self.target_stream._write_callback = self.resume_target_read
@@ -492,7 +492,7 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
     def add_websocket_handler(self, handler):
         if self.websocket_handler:
             logging.error('%s already have websocket handler!' % self)
-            import pdb; pdb.set_trace()
+            # XXX --- what to do?
         self.websocket_handler = handler
         self.try_handoff()
 
@@ -587,7 +587,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         if len(self.request.connection.stream._write_buffer) > 1:
             logging.warn('throttle write')
             # stop reading on incoming stream if the write to the websocket is congested
-            self.incoming_stream._add_io_state(None)
+            self.incoming_stream._clear_io_state()
             self.incoming_stream._write_callback = self.incoming_stream_resume_read
 
         # WARNING!! EXCEPTIONS HERE DO NOT LOG ERRORS! (ioloop handle_read etc catch generic "Exception")
@@ -618,7 +618,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         if len(self.incoming_stream._write_buffer) > 1:
             logging.warn('throttle read')
             # writing to incoming stream is congested, so slow down read from websocket
-            self.request.connection.stream._add_io_state(None)
+            self.request.connection.stream._clear_io_state()
             self.request.connection.stream._write_callback = self.websocket_stream_resume_read
 
         self.incoming_stream.write(msg)
