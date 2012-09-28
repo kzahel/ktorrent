@@ -619,7 +619,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
             logging.warn('throttle read')
             # writing to incoming stream is congested, so slow down read from websocket
             self.request.connection.stream._clear_io_state()
-            self.request.connection.stream._write_callback = self.websocket_stream_resume_read
+            self.request.connection.stream._write_callback = self.websocket_resume_read
 
         self.incoming_stream.write(msg)
 
