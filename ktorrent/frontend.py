@@ -625,6 +625,59 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
 
 import bencode
 import functools
+import tornado.ioloop
+
+class UDPSockWrapper(object):
+    def __init__(self, socket, in_ioloop=None):
+        self.socket = socket
+        self._state = None
+        self._read_callback = None
+        self.io_loop = in_ioloop or ioloop
+
+    def _add_io_state(self, state):
+        if self._state is None:
+            self._state = tornado.ioloop.IOLoop.ERROR | state
+            #with stack_context.NullContext():
+            self.io_loop.add_handler(
+                self.socket.fileno(), self._handle_events, self._state)
+        elif not self._state & state:
+            self._state = self._state | state
+            self.io_loop.update_handler(self.socket.fileno(), self._state)
+
+    def send(self,msg):
+        return self.socket.send(msg)
+
+    def recv(self,sz):
+        return self.socket.recv(sz)
+    
+    def close(self):
+        self.socket.close()
+
+    def read_chunk(self, callback, timeout=4):
+        self._read_callback = callback
+        self._read_timeout = ioloop.add_timeout( time.time() + timeout, self.check_read_callback )
+        self._add_io_state(ioloop.READ)
+
+    def check_read_callback(self):
+        if self._read_callback:
+            data = self.socket.recv(4096)
+            self._read_callback(None, error='timeout');
+
+    def _handle_read(self):
+        if self._read_timeout:
+            self.io_loop.remove_timeout(self._read_timeout)
+        if self._read_callback:
+            data = self.socket.recv(4096)
+            self._read_callback(data);
+            self._read_callback = None
+
+    def _handle_events(self, fd, events):
+        if events & self.io_loop.READ:
+            self._handle_read()
+        if events & self.io_loop.ERROR:
+            logging.error('%s event error' % self)
+    
+
 
 class WebSocketUDPProxyHandler(BaseWebSocketHandler):
     """ open relay for sendingi/receiving UDP data, with websocket frontend """
@@ -652,37 +705,36 @@ class WebSocketUDPProxyHandler(BaseWebSocketHandler):
             except socket.gaierror:
                 logging.error('no internet.. send error')
                 return
-            self.socks[ udpsock.fileno() ] = {'sock': udpsock, 'read_timeout': None}
+            self.socks[ udpsock.fileno() ] = {'sock': UDPSockWrapper(udpsock), 'read_timeout': None}
             self.send_message( { 'id': msg['id'], 'newsock': udpsock.fileno() } )
+        elif msg['method'] == 'sock_close':
+            self.get_sock(msg['sock']).close()
+            #self.socks[msg['sock']]
         elif msg['method'] == 'send':
             self.get_sock(msg['sock']).send( msg['args'][0] )
         elif msg['method'] == 'recv':
-            if self.socks[msg['sock']]['read_timeout']:
+            if self.socks[msg['sock']]['sock']._read_callback:
                 logging.error('already reading!')
             # session id?
             #logging.info('%s trying to read from sock' % self)
-            ioloop.add_handler(msg['sock'], functools.partial(self.got_data, msg['sock'], msg['id']), ioloop.READ)
-            timeout = ioloop.add_timeout( time.time() + 4, functools.partial(self.got_data, msg['sock'], msg['id'], None, None) )
-            self.socks[msg['sock']]['read_timeout'] = timeout
+            sock = self.socks[msg['sock']]['sock']
+            sock.read_chunk( functools.partial(self.got_data, msg['sock'], msg['id']) )
+            #ioloop.add_handler(msg['sock'], functools.partial(self.got_data, msg['sock'], msg['id']), ioloop.READ)
         # read message
                  
     def send_message(self, data):
-        #logging.info('%s respond w msg %s' % (self, [data]))
+        logging.info('%s respond w msg %s' % (self, [data]))
         self.write_message( bencode.bencode( data ), binary=True )
         
-    def got_data(self, insocknum, id, socknum, addr):
-
-        if addr is None:
+    def got_data(self, insocknum, id, data, error=None):
+        if data is None:
             # timeout
-            logging.info('%s timeout reading from udp sock' % self)
+            logging.info('%s reading from udp sock, error: %s' % (self, error))
             msg = { 'sock': insocknum, 'id': id, 'error': 'timeout' }
             logging.info('%s fd %s TIMEOUT read' % (self, insocknum))
             ioloop.remove_handler(insocknum)
         else:
-            timeout = self.socks[insocknum]['read_timeout']
-            ioloop.remove_timeout(timeout)
-            data = self.get_sock(socknum).recv(4096)
-            logging.info('%s fd %s GOT DATA of len %s' % (self, socknum, len(data)))
-            msg = { 'sock': socknum, 'id': id, 'data': data }
+            logging.info('%s fd %s GOT DATA of len %s' % (self, insocknum, len(data)))
+            msg = { 'sock': insocknum, 'id': id, 'data': data }
         self.socks[insocknum]['read_timeout'] = None
         self.send_message( msg )
