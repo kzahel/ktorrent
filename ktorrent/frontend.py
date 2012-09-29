@@ -224,7 +224,7 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
     connect_timeout = 10
 
     def open(self):
-        self.username = self.get_argument('username')
+        self.username = self.get_argument('username','notsent')
         self.fd = self.request.connection.stream.socket.fileno()
         self._read_buffer = collections.deque()
         self.handshaking = True
@@ -506,7 +506,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         self.listen_proxy = None
         self.incoming_stream = None
 
-        self.username = self.get_argument('username')
+        self.username = self.get_argument('username','notsent')
 
         if 'token' in self.request.arguments:
             token = self.get_argument('token')
