@@ -25,7 +25,7 @@ from util import hexlify
 class BaseHandler(tornado.web.RequestHandler):
     def __init__(self, *args, **kwargs):
         self.ioloop = IOLoop.instance()
-        tornado.web.RequestHandler.__init__(*args,**kwargs)
+        tornado.web.RequestHandler.__init__(self, *args,**kwargs)
         
     def writeout(self, args):
         if 'callback' in self.request.arguments:
@@ -221,6 +221,10 @@ class APIHandler(BaseHandler):
 from tornado import gen
 
 class BaseWebSocketHandler(WebSocketHandler):
+    def __init__(self, *args, **kwargs):
+        self.ioloop = IOLoop.instance()
+        WebSocketHandler.__init__(self, *args,**kwargs)
+
     def do_close(self, reason=None):
         if not self.request.connection.stream.closed():
             logging.info('%s manually close, %s' % (self, reason))
@@ -450,12 +454,12 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
     byport = {}
     bytoken = {}
 
-    def __init__(self, port):
+    def __init__(self, port, io_loop=None):
         self.incoming_queue = []
         self.websocket_handler = None
         self.error = False
         self.port = port
-        tornado.httpserver.TCPServer.__init__(self, io_loop=self.ioloop)
+        tornado.httpserver.TCPServer.__init__(self, io_loop=io_loop)
         try:
             self.listen(self.port)
             logging.info('%s listening' % self)
@@ -544,7 +548,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         if self.listen_port in IncomingConnectionListenProxy.byport:
             self.listen_proxy = IncomingConnectionListenProxy.byports[self.listen_port]
         else:
-            self.listen_proxy = IncomingConnectionListenProxy(self.listen_port)
+            self.listen_proxy = IncomingConnectionListenProxy(self.listen_port, self.ioloop)
             self.write_message({'port':self.listen_proxy.port, 'token':self.listen_proxy.token})
 
         if self.listen_proxy.error:
