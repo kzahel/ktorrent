@@ -15,12 +15,14 @@ import socket
 import base64
 import pdb
 import sys
+import binascii
 from tornado.options import options
 from tornado.ioloop import IOLoop
 ioloop = IOLoop.instance()
 from proxytorrent import ProxyTorrent
 from tracker import Tracker
 from util import hexlify
+
 class BaseHandler(tornado.web.RequestHandler):
     def writeout(self, args):
         if 'callback' in self.request.arguments:
@@ -67,7 +69,7 @@ class GUIHandler(BaseHandler):
                 self.writeout(ret)
 
 
-import binascii
+
 class StatusHandler(BaseHandler):
     def get(self):
         attrs = {}
@@ -181,14 +183,18 @@ class ProxyHandler(BaseHandler):
     @tornado.web.asynchronous
     def get(self):
         client = Client.instances[0]
-        sid = self.get_argument('sid')
-        file = int(self.get_argument('file'))
-
         torrent = None
-        for hash, t in client.torrents.iteritems():
-            if t.sid == sid:
-                torrent = t
-                break
+        file = int(self.get_argument('file','0'))
+        if 'hash' in self.request.arguments:
+            torrent_hash = binascii.unhexlify(self.get_argument('hash'))
+            if torrent_hash in client.torrents:
+                torrent = client.torrents[torrent_hash]
+        else:
+            sid = self.get_argument('sid')
+            for hash, t in client.torrents.iteritems():
+                if t.sid == sid:
+                    torrent = t
+                    break
 
         if torrent:
             file = torrent.get_file(file)
