@@ -77,13 +77,25 @@ class StatusHandler(BaseHandler):
     def get(self):
         attrs = {}
 
-        attrs.update( dict( 
-                clients = [ (c, dict( (hexlify(h), t) for h,t in c.torrents.iteritems() )) for c in Client.instances ],
-                trackers = Tracker.instances,
-                connections = Connection.instances,
-                torrents = dict( (binascii.hexlify(h), {'torrent':t, 'conns':t.connections,'attrs':t._attributes}) for h,t in Torrent.instances.iteritems() ),
-                peers = [dict( (str(k),v) for k,v in Peer.instances_compact.items() ), dict( (hexlify(k),v) for k,v in Peer.instances_peerid.items() )]
-                            ) )
+
+        if 'proxy' in self.request.arguments:
+
+            attrs.update( dict( 
+                    incoming_proxy_ws = WebSocketIncomingProxyHandler.instances,
+                    incoming_tcp_listener = IncomingConnectionListenProxy.byport,
+                    udp_proxy = [[p, p.socks] for p in WebSocketUDPProxyHandler.instances],
+                    ws_proxy = WebSocketProxyHandler.instances,
+                    ))
+        else:
+            attrs.update( dict( 
+                    clients = [ (c, dict( (hexlify(h), t) for h,t in c.torrents.iteritems() )) for c in Client.instances ],
+                    trackers = Tracker.instances,
+                    ws_prot = WebSocketProtocolHandler.instances,
+                    connections = Connection.instances,
+                    torrents = dict( (binascii.hexlify(h), {'torrent':t, 'conns':t.connections,'attrs':t._attributes}) for h,t in Torrent.instances.iteritems() ),
+                    peers = [dict( (str(k),v) for k,v in Peer.instances_compact.items() ), dict( (hexlify(k),v) for k,v in Peer.instances_peerid.items() )]
+                                ) )
+            
         def custom(obj):
             return escape(str(obj))
 
@@ -234,9 +246,12 @@ class BaseWebSocketHandler(WebSocketHandler):
 
 
 class WebSocketProxyHandler(BaseWebSocketHandler):
+    instances = []
     connect_timeout = 10
 
     def open(self):
+        self.instances.append(self)
+
         self.username = self.get_argument('username','notsent')
         self.fd = self.request.connection.stream.socket.fileno()
         self._read_buffer = collections.deque()
@@ -328,6 +343,8 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
             #self.target_stream._add_io_state(ioloop.READ)
 
     def on_close(self):
+        self.instances.remove(self)
+
         self._read_buffer = None
         logging.info('%s on close' % self)
         if not self.target_stream.closed():
@@ -335,8 +352,10 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
 
 
 class WebSocketProtocolHandler(BaseWebSocketHandler):
+    instances = []
 
     def open(self):
+        self.instances.append(self)
         self.read_buf = collections.deque()
         self.handshaking = True
         self.is_closed = False
@@ -370,6 +389,7 @@ class WebSocketProtocolHandler(BaseWebSocketHandler):
         return val
 
     def on_close(self):
+        self.instances.remove(self)
         if options.verbose > 10:
             logging.info( "WebSocket closed" )
         self.is_closed = True
@@ -455,10 +475,13 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
     bytoken = {}
 
     def __init__(self, port, io_loop=None):
+        self._check_ws_incoming = None
+        self.ioloop = io_loop
         self.incoming_queue = []
         self.websocket_handler = None
         self.error = False
         self.port = port
+        self._closing = False
         tornado.httpserver.TCPServer.__init__(self, io_loop=io_loop)
         try:
             self.listen(self.port)
@@ -474,9 +497,20 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
         return "<ListTCPSvr(%s):%s>" % (self.websocket_handler, self.port)
 
     def notify_websocket_handler_closed(self, wshandler):
-        return
+        # websocket holding onto this listening connection died... if
+        # no new connection claims us in a bit, then close it down and
+        # shut down the incoming queue.
+
+        if self._closing:
+            return
+
+        logging.warn('notify incoming ws closed, install timeout')
+        if self._check_ws_incoming:
+            self.ioloop.remove_timeout( self._check_ws_incoming )
+        self._check_ws_incoming = self.ioloop.add_timeout( time.time() + 5, self.check_had_no_ws_handler )
+
+        #dassert( wshandler == self.websocket_handler )
         if self.websocket_handler:
-            #dassert( wshandler == self.websocket_handler )
             self.websocket_handler = None
 
     def handle_stream(self, stream, address):
@@ -485,13 +519,20 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
         self.try_handoff()
 
     def notify_incoming_closed(self):
-        pass
-        #if not self.websocket_handler.request.connection.stream.closed():
-        #    #self.websocket_handler.close('attached incoming connection closed')
-        #self.websocket_handler = None
+        return
 
-    def try_handoff(self):
-        
+    def check_had_no_ws_handler(self):
+        self._closing = True
+        logging.warn("%s CLOSE -- no connected ws in 5 sec" % self)
+        del self.byport[self.port]
+        del self.bytoken[self.token]
+        for item in self.incoming_queue:
+            stream = item[0]
+            if not stream.closed():
+                stream.close()
+        self.stop()
+            
+    def try_handoff(self):        
         if self.websocket_handler and self.incoming_queue:
             logging.info('%s HANDOFF -- had incoming conn!' % self)
             incoming_conn = self.incoming_queue.pop(0)
@@ -503,6 +544,11 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
         #self.check_timeout = ioloop.add_timeout( time.time() + 10, self.check_close )
 
     def add_websocket_handler(self, handler):
+        if self._check_ws_incoming:
+            self.ioloop.remove_timeout( self._check_ws_incoming )
+        self._check_ws_incoming = None
+
+
         if self.websocket_handler:
             logging.error('%s already have websocket handler!' % self)
             # XXX --- what to do?
@@ -512,11 +558,15 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
 from hashlib import sha1
 import random
 class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
+    instances = []
     """ act as a listening socket for me """
 
     def open(self):
+        self.instances.append(self)
+
         self.listen_port = None
         self.listen_proxy = None
+        self._should_have_listen_proxy = True
         self.incoming_stream = None
 
         self.username = self.get_argument('username','notsent')
@@ -529,10 +579,11 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
                 self.listen_proxy.add_websocket_handler(self)
                 return
             else:
+                self._should_have_listen_proxy = False
                 self.do_close('not a valid token')
+                logging.info('%s invalid token %s' % (self, token))
                 return
             
-
         i = IncomingConnectionListenProxy.start_port
         while i < IncomingConnectionListenProxy.end_port:
             if i not in IncomingConnectionListenProxy.byport:
@@ -558,7 +609,8 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         self.listen_proxy.add_websocket_handler(self)
 
     def __repr__(self):
-        return "<WS_IncProx:%s,%s>" % (self.username, self.listen_port)
+        remote_addr = ':'.join(map(str,self.request.connection.address))
+        return "<WS_IncProx:%s,%s,%s,(inc_stream:%s)>" % (remote_addr, self.username, self.listen_port, self.incoming_stream)
 
     def send_notification(self, address):
         logging.info('%s send new connected address %s' % (self, [address]))
@@ -606,6 +658,9 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
             self.write_message(chunk, binary=True)
 
     def on_close(self):
+        if self._should_have_listen_proxy and not self.listen_proxy:
+            import pdb; pdb.set_trace()
+        self.instances.remove(self)
         logging.warn('%s close' % self)
         if self.listen_proxy: 
             self.listen_proxy.notify_websocket_handler_closed(self)
@@ -645,17 +700,20 @@ class UDPSockWrapper(object):
         self.socket = socket
         self._state = None
         self._read_callback = None
-        self.io_loop = in_ioloop or IOLoop.instance()
+        self.ioloop = in_ioloop or IOLoop.instance()
+
+    def __repr__(self):
+        return "<UDPSockWrap:%s,rc:%s>" % (self.socket.fileno(), self._read_callback)
 
     def _add_io_state(self, state):
         if self._state is None:
             self._state = tornado.ioloop.IOLoop.ERROR | state
             #with stack_context.NullContext():
-            self.io_loop.add_handler(
+            self.ioloop.add_handler(
                 self.socket.fileno(), self._handle_events, self._state)
         elif not self._state & state:
             self._state = self._state | state
-            self.io_loop.update_handler(self.socket.fileno(), self._state)
+            self.ioloop.update_handler(self.socket.fileno(), self._state)
 
     def send(self,msg):
         return self.socket.send(msg)
@@ -668,48 +726,57 @@ class UDPSockWrapper(object):
 
     def read_chunk(self, callback, timeout=4):
         self._read_callback = callback
-        self._read_timeout = self.io_loop.add_timeout( time.time() + timeout, self.check_read_callback )
-        self._add_io_state(self.io_loop.READ)
+        self._read_timeout = self.ioloop.add_timeout( time.time() + timeout, self.check_read_callback )
+        self._add_io_state(self.ioloop.READ)
 
     def check_read_callback(self):
         if self._read_callback:
-            data = self.socket.recv(4096)
+            # XXX close socket?
+            #data = self.socket.recv(4096)
             self._read_callback(None, error='timeout');
 
     def _handle_read(self):
         if self._read_timeout:
-            self.io_loop.remove_timeout(self._read_timeout)
+            self.ioloop.remove_timeout(self._read_timeout)
         if self._read_callback:
             data = self.socket.recv(4096)
             self._read_callback(data);
             self._read_callback = None
 
     def _handle_events(self, fd, events):
-        if events & self.io_loop.READ:
+        if events & self.ioloop.READ:
             self._handle_read()
-        if events & self.io_loop.ERROR:
+        if events & self.ioloop.ERROR:
             logging.error('%s event error' % self)
     
 
 
 class WebSocketUDPProxyHandler(BaseWebSocketHandler):
     """ open relay for sendingi/receiving UDP data, with websocket frontend """
+    instances = []
 
     def open(self):
+        self.instances.append(self)
+
         self.socks = {}
         logging.info("%s udp proxy open" % self)
+
+    def __repr__(self):
+        return "<WS_UDPProxy(rem:%s)>" % ':'.join(map(str,self.request.connection.address))
 
     def get_sock(self, num):
         return self.socks[num]['sock']
 
     def on_close(self):
+        self.instances.remove(self)
+
         for k,data in self.socks.iteritems():
             data['sock'].close()
         self.socks = None
 
     def on_message(self, raw):
         msg = bencode.bdecode(raw)
-        logging.info("%s RPC %s" % (self, [msg]))
+        #logging.info("%s RPC %s" % (self, [msg]))
         if msg['method'] == 'newsock':
             udpsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             udpsock.setblocking(False)
@@ -718,14 +785,28 @@ class WebSocketUDPProxyHandler(BaseWebSocketHandler):
             except socket.gaierror:
                 logging.error('no internet.. send error')
                 return
-            self.socks[ udpsock.fileno() ] = {'sock': UDPSockWrapper(udpsock), 'read_timeout': None}
+            self.socks[ udpsock.fileno() ] = {'sock': UDPSockWrapper(udpsock)}
             self.send_message( { 'id': msg['id'], 'newsock': udpsock.fileno() } )
         elif msg['method'] == 'sock_close':
+            if 'sock' not in msg:
+                self.shutdown_with_error('invalid input')
+                return
+
+
             self.get_sock(msg['sock']).close()
+            del self.socks[msg['sock']]
             #self.socks[msg['sock']]
         elif msg['method'] == 'send':
+            if 'sock' not in msg:
+                self.shutdown_with_error('invalid input')
+                return
+
             self.get_sock(msg['sock']).send( msg['args'][0] )
         elif msg['method'] == 'recv':
+            if 'sock' not in msg:
+                self.shutdown_with_error('invalid input')
+                return
+
             if self.socks[msg['sock']]['sock']._read_callback:
                 logging.error('already reading!')
             # session id?
@@ -734,9 +815,15 @@ class WebSocketUDPProxyHandler(BaseWebSocketHandler):
             sock.read_chunk( functools.partial(self.got_data, msg['sock'], msg['id']) )
             #ioloop.add_handler(msg['sock'], functools.partial(self.got_data, msg['sock'], msg['id']), ioloop.READ)
         # read message
-                 
+
+    def shutdown_with_error(self, message):
+        self.send_message( { 'error': message } )
+        import pdb; pdb.set_trace()
+        for sock in self.socks:
+            self.socks['sock'].close()
+
     def send_message(self, data):
-        logging.info('%s respond w msg %s' % (self, [data]))
+        #logging.info('%s respond w msg %s' % (self, [data]))
         self.write_message( bencode.bencode( data ), binary=True )
         
     def got_data(self, insocknum, id, data, error=None):
@@ -744,10 +831,10 @@ class WebSocketUDPProxyHandler(BaseWebSocketHandler):
             # timeout
             logging.info('%s reading from udp sock, error: %s' % (self, error))
             msg = { 'sock': insocknum, 'id': id, 'error': 'timeout' }
-            logging.info('%s fd %s TIMEOUT read' % (self, insocknum))
-            self.io_loop.remove_handler(insocknum)
+            #logging.info('%s fd %s TIMEOUT read' % (self, insocknum))
+            self.ioloop.remove_handler(insocknum)
         else:
-            logging.info('%s fd %s GOT DATA of len %s' % (self, insocknum, len(data)))
+            #logging.info('%s fd %s GOT DATA of len %s' % (self, insocknum, len(data)))
             msg = { 'sock': insocknum, 'id': id, 'data': data }
-        self.socks[insocknum]['read_timeout'] = None
+        #self.socks[insocknum]['read_timeout'] = None
         self.send_message( msg )

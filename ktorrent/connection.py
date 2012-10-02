@@ -356,6 +356,7 @@ class Connection(object):
         #logging.info("RECV DATA %s" % [self.stream._read_buffer[0]])
         if self.stream._read_buffer[0].startswith('GET '): # looks like HTTP
             self.stream._buffer_grown_callback = None
+            Connection.instances.remove( self )
             self.frontend_server.handle_stream(self.stream, self.address)
         elif self.stream._read_buffer[0] == "<policy-file-request/>\x00":
             self.stream.write("""<?xml version="1.0"?>
