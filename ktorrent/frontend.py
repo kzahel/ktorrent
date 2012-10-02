@@ -18,12 +18,15 @@ import sys
 import binascii
 from tornado.options import options
 from tornado.ioloop import IOLoop
-ioloop = IOLoop.instance()
 from proxytorrent import ProxyTorrent
 from tracker import Tracker
 from util import hexlify
 
 class BaseHandler(tornado.web.RequestHandler):
+    def __init__(self, *args, **kwargs):
+        self.ioloop = IOLoop.instance()
+        tornado.web.RequestHandler.__init__(*args,**kwargs)
+        
     def writeout(self, args):
         if 'callback' in self.request.arguments:
             self.set_header('Content-Type','text/javascript')
@@ -244,11 +247,11 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
 
-        self.target_stream = iostream.IOStream(s, io_loop=ioloop)
+        self.target_stream = iostream.IOStream(s, io_loop=self.ioloop)
         self.target_stream._always_callback = True
         self.target_stream._buffer_grown_callback = self.target_has_new_data
         self.target_stream.set_close_callback( self.target_stream_closed )
-        self.connect_timeout = ioloop.add_timeout( time.time() + WebSocketProxyHandler.connect_timeout, self.check_target_connected )
+        self.connect_timeout = self.ioloop.add_timeout( time.time() + WebSocketProxyHandler.connect_timeout, self.check_target_connected )
         self.addr = (self.target_host, self.target_port)
         #self.addr = ('110.174.252.130', 20862)
         #self.addr = ('84.215.241.100',53566 )
@@ -281,7 +284,7 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
 
     def resume_target_read(self):
         logging.info('%s resume read!' % self)
-        self.target_stream._add_io_state(ioloop.READ)
+        self.target_stream._add_io_state(self.ioloop.READ)
         
     def check_target_connected(self):
         if self.target_stream._connecting:
@@ -289,7 +292,7 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
             self.do_close("endpoint timeout")
 
     def connected_to_target(self):
-        ioloop.remove_timeout( self.connect_timeout )
+        self.ioloop.remove_timeout( self.connect_timeout )
         if self.target_stream.error:
             self.do_close("error connecting")
             return
@@ -425,7 +428,7 @@ class WebSocketIOStreamAdapter(object):
             self.handler.write_message(msg, binary=True) # make sure it's binary...
         # callback immediately
         if callback:
-            ioloop.add_callback( callback )
+            self.ioloop.add_callback( callback )
 
     def closed(self):
         return self.handler.is_closed
@@ -452,7 +455,7 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
         self.websocket_handler = None
         self.error = False
         self.port = port
-        tornado.httpserver.TCPServer.__init__(self, io_loop=ioloop)
+        tornado.httpserver.TCPServer.__init__(self, io_loop=self.ioloop)
         try:
             self.listen(self.port)
             logging.info('%s listening' % self)
@@ -570,7 +573,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         self.incoming_stream = stream
         self.incoming_stream.set_close_callback( self.on_incoming_close )
         self.incoming_stream._buffer_grown_callback = self.handle_incoming_stream_chunk
-        self.incoming_stream._add_io_state(ioloop.READ)
+        self.incoming_stream._add_io_state(self.ioloop.READ)
         self.send_notification(address)
 
     def on_incoming_close(self):
@@ -580,7 +583,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         #self.listen_proxy.notify_incoming_closed()
 
     def incoming_stream_resume_read(self):
-        self.incoming_stream._add_io_state(ioloop.READ)
+        self.incoming_stream._add_io_state(self.ioloop.READ)
 
     def handle_incoming_stream_chunk(self):
         data = self.incoming_stream._read_buffer
@@ -608,7 +611,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
             self.incoming_stream.close()
 
     def websocket_resume_read(self):
-        self.request.connection.stream._add_io_state(ioloop.READ)
+        self.request.connection.stream._add_io_state(self.ioloop.READ)
 
     def on_message(self, msg):
         if self.incoming_stream.closed():
@@ -638,7 +641,7 @@ class UDPSockWrapper(object):
         self.socket = socket
         self._state = None
         self._read_callback = None
-        self.io_loop = in_ioloop or ioloop
+        self.io_loop = in_ioloop or IOLoop.instance()
 
     def _add_io_state(self, state):
         if self._state is None:
@@ -661,8 +664,8 @@ class UDPSockWrapper(object):
 
     def read_chunk(self, callback, timeout=4):
         self._read_callback = callback
-        self._read_timeout = ioloop.add_timeout( time.time() + timeout, self.check_read_callback )
-        self._add_io_state(ioloop.READ)
+        self._read_timeout = self.io_loop.add_timeout( time.time() + timeout, self.check_read_callback )
+        self._add_io_state(self.io_loop.READ)
 
     def check_read_callback(self):
         if self._read_callback:
@@ -738,7 +741,7 @@ class WebSocketUDPProxyHandler(BaseWebSocketHandler):
             logging.info('%s reading from udp sock, error: %s' % (self, error))
             msg = { 'sock': insocknum, 'id': id, 'error': 'timeout' }
             logging.info('%s fd %s TIMEOUT read' % (self, insocknum))
-            ioloop.remove_handler(insocknum)
+            self.io_loop.remove_handler(insocknum)
         else:
             logging.info('%s fd %s GOT DATA of len %s' % (self, insocknum, len(data)))
             msg = { 'sock': insocknum, 'id': id, 'data': data }
