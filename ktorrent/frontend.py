@@ -570,6 +570,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         self.incoming_stream = None
 
         self.username = self.get_argument('username','notsent')
+        self.version = self.get_argument('v','notsent')
 
         if 'token' in self.request.arguments:
             token = self.get_argument('token')
@@ -610,7 +611,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
 
     def __repr__(self):
         remote_addr = ':'.join(map(str,self.request.connection.address))
-        return "<WS_IncProx:%s,%s,%s,(inc_stream:%s)>" % (remote_addr, self.username, self.listen_port, self.incoming_stream)
+        return "<WS_IncProx:%s,%s,v:%s,%s,(inc_stream:%s)>" % (remote_addr, self.username, self.version, self.listen_port, self.incoming_stream)
 
     def send_notification(self, address):
         logging.info('%s send new connected address %s' % (self, [address]))
