@@ -25,6 +25,7 @@ class ProxyTorrent(object):
         self.file = file
         self.filepath = file.get_path()
         self.handler = handler
+        #self.handler.request.connection.stream._debug_io = True
         self.diskfile = None
 
         if file.completed():

@@ -270,7 +270,11 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
         self.target_stream._always_callback = True
         self.target_stream._buffer_grown_callback = self.target_has_new_data
         self.target_stream.set_close_callback( self.target_stream_closed )
-        self.connect_timeout = self.ioloop.add_timeout( time.time() + WebSocketProxyHandler.connect_timeout, self.check_target_connected )
+        if 'timeout' in self.request.arguments:
+            timeout = int(self.get_argument('timeout')) / 1000.0
+        else:
+            timeout = WebSocketProxyHandler.connect_timeout
+        self.connect_timeout = self.ioloop.add_timeout( time.time() + timeout, self.check_target_connected )
         self.addr = (self.target_host, self.target_port)
         #self.addr = ('110.174.252.130', 20862)
         #self.addr = ('84.215.241.100',53566 )
@@ -286,6 +290,7 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
 
     def target_has_new_data(self):
         #logging.warn('target has new data! %s' % self.target_stream._read_buffer)
+        #logging.warn('target has new data! %s' % len(self.target_stream._read_buffer))
         while len(self.target_stream._read_buffer) > 0:
             chunk = self.target_stream._read_buffer.popleft()
             #logging.info('writing data to websocket %s' % len(chunk) )
@@ -327,6 +332,8 @@ class WebSocketProxyHandler(BaseWebSocketHandler):
         #logging.info('ws proxy message %s' % [msg])
         if not self.target_stream._connecting and not self.target_stream.closed():
             #logging.info('writing data to target_stream %s, %s' % (len(msg),time.time() ))
+            if len(self.target_stream._write_buffer) > 0:
+                logging.error('target stream has write buffer!')
             self.target_stream.write(msg)
         else:
             self._read_buffer.append(msg)
@@ -526,11 +533,12 @@ class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
         logging.warn("%s CLOSE -- no connected ws in 5 sec" % self)
         del self.byport[self.port]
         del self.bytoken[self.token]
+        self.stop()
         for item in self.incoming_queue:
             stream = item[0]
             if not stream.closed():
                 stream.close()
-        self.stop()
+
             
     def try_handoff(self):        
         if self.websocket_handler and self.incoming_queue:
@@ -656,6 +664,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
         # WARNING!! EXCEPTIONS HERE DO NOT LOG ERRORS! (ioloop handle_read etc catch generic "Exception")
         while len(self.incoming_stream._read_buffer) > 0:
             chunk = self.incoming_stream._read_buffer.popleft()
+            # TODO -- check _read_buffer_size ... it's getting out of sync!
             self.write_message(chunk, binary=True)
 
     def on_close(self):
@@ -740,7 +749,11 @@ class UDPSockWrapper(object):
         if self._read_timeout:
             self.ioloop.remove_timeout(self._read_timeout)
         if self._read_callback:
-            data = self.socket.recv(4096)
+            try:
+                data = self.socket.recv(4096)
+            except:
+                # conn refused??
+                data = None
             self._read_callback(data);
             self._read_callback = None
 
@@ -760,7 +773,7 @@ class WebSocketUDPProxyHandler(BaseWebSocketHandler):
         self.instances.append(self)
 
         self.socks = {}
-        logging.info("%s udp proxy open" % self)
+        logging.error("%s udp proxy open" % self)
 
     def __repr__(self):
         return "<WS_UDPProxy(rem:%s)>" % ':'.join(map(str,self.request.connection.address))
@@ -819,7 +832,7 @@ class WebSocketUDPProxyHandler(BaseWebSocketHandler):
 
     def shutdown_with_error(self, message):
         self.send_message( { 'error': message } )
-        import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
         for sock in self.socks:
             self.socks['sock'].close()
 
