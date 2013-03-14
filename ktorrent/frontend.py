@@ -570,6 +570,7 @@ class WebSocketIncomingProxyHandler(BaseWebSocketHandler):
     """ act as a listening socket for me """
 
     def open(self):
+        logging.info('incoming proxy open')
         self.instances.append(self)
 
         self.listen_port = None

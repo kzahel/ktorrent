@@ -1,3 +1,8 @@
+IMPORTANT NOTE: this project requires a custom version of tornado from
+https://github.com/kzahel/tornado_gen that has a special
+IOStream.read_chunk method. Please install this using virtualenv. If
+you don't know how to use virtualenv, first learn about that.
+
 torrent client using tornado's ioloop.
 fast and efficient for downloading files.
 
