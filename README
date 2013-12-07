@@ -3,6 +3,17 @@ https://github.com/kzahel/tornado_gen that has a special
 IOStream.read_chunk method. Please install this using virtualenv. If
 you don't know how to use virtualenv, first learn about that.
 
+SECONDARY NOTE: some features require a patched bencode
+
+def bdecode(x,strict=True):                                                             
+    try:                                                                                                                                                                
+        r, l = decode_func[x[0]](x, 0)                                                                                                                                  
+    except (IndexError, KeyError, ValueError):                                                                                                                          
+        raise BTFailure("not a valid bencoded string")                                                                                                                  
+    if l != len(x) and strict:                                                                                                                                          
+        raise BTFailure("invalid bencoded value (data after valid prefix)")                                                                                             
+    return r                                                                
+
 torrent client using tornado's ioloop.
 fast and efficient for downloading files.
 
