@@ -1,4 +1,6 @@
 import logging
+import functools
+import time
 import struct
 import pdb
 import bencode
@@ -218,6 +220,10 @@ class UnChokeHandler(BTMessageHandler):
         self.request.connection._am_choked = False
         self.finish()
 
+class NullHandler(BTMessageHandler):
+    def handle(self):
+        self.finish()
+
 class HaveAllHandler(BTMessageHandler):
     def handle(self):
         if self.request.connection.torrent.meta:
@@ -279,16 +285,23 @@ class RequestHandler(BTMessageHandler):
         #logging.info('request %s %s %s' % (index, offset, sz))
 
         if self.request.connection.torrent.bitmask[index] == 1:
-            data = self.request.connection.torrent.get_piece(index).get_data(offset, sz)
-            payload = ''.join((
-                    struct.pack('>I',index),
-                    struct.pack('>I',offset),
-                    data))
-            self.send_message('PIECE', payload, log=True)
-            self.finish()
+            if options.slow_seed:
+                Connection.ioloop.add_timeout( time.time() + 1, functools.partial(self.do_request,index, offset, sz) )
+            else:
+                self.do_request(index, offset, sz)
         else:
             self.send_message('REJECT_REQUEST', self.request.payload)
             self.finish()
+
+    def do_request(self, index, offset, sz):
+        data = self.request.connection.torrent.get_piece(index).get_data(offset, sz)
+        payload = ''.join((
+                struct.pack('>I',index),
+                struct.pack('>I',offset),
+                data))
+        self.send_message('PIECE', payload, log=True)
+        self.finish()
+
 
 class InterestedHandler(BTMessageHandler):
     def handle(self):

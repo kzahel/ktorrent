@@ -33,6 +33,7 @@ define('startup_connect_to_hash', default='', type=str)
 define('startup_exit_on_close', default=False, help='quit program when connection closes', type=bool)
 
 #define('outbound_piece_limit',default=1, type=int)
+define('slow_seed',default=False, type=bool)
 define('outbound_piece_limit',default=20, type=int)
 define('piece_request_timeout',default=10, type=int)
 
@@ -91,7 +92,8 @@ from handlers import BitmaskHandler,\
     RequestHandler,\
     CancelHandler,\
     PieceHandler,\
-    HaveAllHandler
+    HaveAllHandler,\
+    NullHandler
 
 routes = { 'BITFIELD': BitmaskHandler,
            'UTORRENT_MSG': UTHandler,
@@ -100,6 +102,7 @@ routes = { 'BITFIELD': BitmaskHandler,
            'HAVE_ALL': HaveAllHandler,
            'INTERESTED': InterestedHandler,
            'NOT_INTERESTED': NotInterestedHandler,
+           'REJECT_REQUEST': NullHandler,
            'CHOKE': ChokeHandler,
            'UNCHOKE': UnChokeHandler,
            'REQUEST': RequestHandler,
