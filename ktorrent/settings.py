@@ -1,5 +1,5 @@
 import os
-import bencode
+import bcoding
 import logging
 from tornado.options import options
 
@@ -64,11 +64,11 @@ class Settings(object):
 
     @classmethod
     def load(cls):
-        if os.path.exists( options.resume_file ):
-            fo = open(options.resume_file)
+        if os.path.exists( options.resume_file):
+            fo = open(options.resume_file,'rb')
             try:
                 raw = fo.read()
-                resume_data = bencode.bdecode( raw )
+                resume_data = bcoding.bdecode( raw )
                 cls._data = resume_data
             except:
                 logging.error('error loading resume data %s' % raw)
@@ -78,9 +78,9 @@ class Settings(object):
 
     @classmethod
     def flush(cls):
-        fo = open( options.resume_file, 'w' )
+        fo = open( options.resume_file, 'wb' )
         #logging.info('writing settings %s' % cls._data)
-        fo.write( bencode.bencode(cls._data) )
+        fo.write( bcoding.bencode(cls._data) )
         fo.close()
 
     @classmethod

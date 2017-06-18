@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 import tornado.ioloop
 import tornado.options
-import tornado.netutil
+import tornado.tcpserver
 import tornado.httpserver
 import tornado.web
 import functools
@@ -11,7 +12,7 @@ from hashlib import sha1
 import binascii
 import bencode
 from tornado.options import define, options
-from torrent import Torrent
+from .torrent import Torrent
 home = os.getenv("HOME")
 define('debug',default=True, type=bool)
 define('asserts',default=True, type=bool)
@@ -38,14 +39,14 @@ define('outbound_piece_limit',default=20, type=int)
 define('piece_request_timeout',default=10, type=int)
 
 tornado.options.parse_command_line()
-settings = dict( (k, v.value()) for k,v in options.items() )
+settings = dict( (k, v) for k,v in options.items() )
 
 from tornado.autoreload import add_reload_hook
 import signal
 import sys
 
-from connection import Connection
-from client import Client
+from .connection import Connection
+from .client import Client
 if options.debug:
     import pdb
 ioloop = tornado.ioloop.IOLoop()
@@ -80,7 +81,7 @@ class BTApplication(object):
             logging.info("%s %.2fms", 
                          handler._request_summary(), request_time)
 
-from handlers import BitmaskHandler,\
+from .handlers import BitmaskHandler,\
     UTHandler,\
     NullHandler,\
     HaveHandler,\
@@ -110,7 +111,7 @@ routes = { 'BITFIELD': BitmaskHandler,
            'PIECE': PieceHandler
            }
 
-from frontend import IndexHandler, StatusHandler, APIHandler, PingHandler, VersionHandler, BtappHandler, PairHandler, request_logger, ProxyHandler, WebSocketProtocolHandler, GUIHandler, WebSocketProxyHandler, WebSocketIncomingProxyHandler, WebSocketUDPProxyHandler
+from .frontend import IndexHandler, StatusHandler, APIHandler, PingHandler, VersionHandler, BtappHandler, PairHandler, request_logger, ProxyHandler, WebSocketProtocolHandler, GUIHandler, WebSocketProxyHandler, WebSocketIncomingProxyHandler, WebSocketUDPProxyHandler
 
 frontend_routes = [
     ('/?', IndexHandler),
@@ -145,9 +146,9 @@ def got_interrupt_signal(signum=None, frame=None):
 
 signal.signal(signal.SIGINT, got_interrupt_signal)
 
-class BTProtocolServer(tornado.netutil.TCPServer):
+class BTProtocolServer(tornado.tcpserver.TCPServer):
     def __init__(self, request_callback, io_loop=None):
-        tornado.netutil.TCPServer.__init__(self, io_loop)
+        tornado.tcpserver.TCPServer.__init__(self, io_loop)
         self.request_callback = request_callback
 
     def handle_stream(self, stream, address):

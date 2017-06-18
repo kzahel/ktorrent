@@ -2,17 +2,17 @@ import socket
 import logging
 import struct
 import time
-import constants
+import ktorrent.constants as constants
 import math
-import bencode
+import bcoding
 import pdb
 import sys
 import random
 from hashlib import sha1
 import binascii
-from torrent import Torrent
-from peer import Peer
-from util import MetaStorage, parse_bitmask
+from .torrent import Torrent
+from .peer import Peer
+from .util import MetaStorage, parse_bitmask
 from tornado import stack_context
 from tornado.options import options
 from tornado.iostream import IOStream
@@ -63,7 +63,7 @@ class Request(object):
             return self._finish_time - self._start_time
 
 import functools
-from constants import HANDSHAKE_CODE
+from .constants import HANDSHAKE_CODE
 
 class Connection(object):
     instances = []
@@ -117,7 +117,7 @@ class Connection(object):
         self._my_extension_handshake_codes = dict( (v,k) for k,v in data['m'].items() )
         if options.verbose > 1:
             logging.info('sending ext message %s' % data)
-        self.send_message('UTORRENT_MSG', chr(HANDSHAKE_CODE) + bencode.bencode(data))
+        self.send_message('UTORRENT_MSG', bytes([HANDSHAKE_CODE]) + bcoding.bencode(data))
         self.send_dht_port()
 
     @classmethod
@@ -177,6 +177,7 @@ class Connection(object):
             self.send_message('NOT_INTERESTED')
 
     def request_metadata(self):
+        logging.info('requesting metadata')
         msgcode = self._remote_extension_handshake['m']['ut_metadata']
         self._meta_requested = True
         sz = self._remote_extension_handshake['metadata_size']
@@ -266,9 +267,9 @@ class Connection(object):
             logging.info('Sending %s with len %s (o: %s)' % (type, len(payload), self._piece_request_outbound))
 
 
-        towrite = ''.join( (
+        towrite = b''.join( (
                 struct.pack('>I', len(payload)+1),
-                constants.message_dict[type],
+                constants.message_dict[type].encode('utf-8'),
                 payload) )
         self.write(towrite)
 
@@ -339,33 +340,36 @@ class Connection(object):
             self.when_connected()
 
     def when_connected(self, force_torrent_protocol=False):
+        logging.info("have connection")
         try:
             #logging.info('attempting read of len %s' % constants.handshake_length)
             # todo -- "peek" into handshake and see if it's an HTTP-like request.
             if force_torrent_protocol:
-                self.stream.read_bytes(constants.handshake_length, self.got_handshake)
+                self.stream.read_bytes(constants.handshake_length, self.got_handshake, streaming_callback=self.received_data)
             else: # tries to guess at the protocol
                 self.stream._add_io_state(self.stream.io_loop.READ)
-                self.stream._buffer_grown_callback = self.received_data
+                self.stream._streaming_callback = self.received_data
+                #self.stream._buffer_grown_callback = self.received_data
                 
         except IOError:
             logging.warn('failed reading handshake (hopefully on_connection_close is called)')
             pass
 
-    def received_data(self):
+    def received_data(self,data):
         #logging.info("RECV DATA %s" % [self.stream._read_buffer[0]])
-        if self.stream._read_buffer[0].startswith('GET '): # looks like HTTP
-            self.stream._buffer_grown_callback = None
+        logging.info("RECV DATA %s" % [data])
+        if data.startswith(b'GET '): # looks like HTTP
+            #self.stream._buffer_grown_callback = None
             Connection.instances.remove( self )
             self.frontend_server.handle_stream(self.stream, self.address)
-        elif self.stream._read_buffer[0] == "<policy-file-request/>\x00":
+        elif data == b"<policy-file-request/>\x00":
             self.stream.write("""<?xml version="1.0"?>
 <cross-domain-policy><allow-access-from domain="*" to-ports="*" />
 </cross-domain-policy>""")
             self.stream.close()
             # flash websocket shim web-socket-js
         else:
-            self.stream._buffer_grown_callback = None
+            #self.stream._buffer_grown_callback = None
             self.stream.read_bytes(constants.handshake_length, self.got_handshake)
 
     def on_connection_close(self):
@@ -376,7 +380,8 @@ class Connection(object):
         self._active = False
         Connection.instances.remove(self)
 
-        logging.warn('closed peer connection %s' % [self.address, binascii.hexlify(self.torrent.hash)[:6] + '..' if self.torrent else None])
+        #logging.warn('closed peer connection %s' % [self.address, binascii.hexlify(self.torrent.hash)[:6] + '..' if self.torrent else None])
+        logging.warn('closed peer connection')
         if self.torrent and self.torrent.meta:
             complete_upload = self._piece_bytes_uploaded >= self.torrent.get_size()
             complete_download = self._piece_bytes_downloaded >= self.torrent.get_size()
@@ -399,12 +404,13 @@ class Connection(object):
         if infohash is None:
             infohash = self.infohash
         #logging.info('sending handshake with infohash %s' % binascii.hexlify(infohash))
-        towrite = ''.join((chr(len(constants.protocol_name)),
-                           constants.protocol_name,
-                           ''.join(constants.handshake_flags),
+        
+        towrite = b''.join([bytes([len(constants.protocol_name)]),
+                           constants.protocol_name.encode('utf-8'),
+                           ''.join(constants.handshake_flags).encode('utf-8'),
                            infohash,
-                           self._my_peerid
-                           ))
+                           self._my_peerid.encode('utf-8')
+                           ])
         self.stream.write(towrite)
 
     def send_dht_port(self):
@@ -620,7 +626,7 @@ class Connection(object):
                     if not conn._am_interested and conn._am_choked:
                         conn.send_message('INTERESTED')
                         return
-                    else:
+                    elif not conn._am_choked:
                         data = cur_piece.make_request(conn)
                         if data:
                             if options.verbose > 2:

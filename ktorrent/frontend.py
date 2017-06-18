@@ -1,13 +1,13 @@
 import tornado.web
 import logging
 import urllib
-from connection import Connection
+from .connection import Connection
 from tornado.websocket import WebSocketHandler
 from tornado import iostream
-from torrent import Torrent
-from client import Client
-from session import Session
-from peer import Peer
+from .torrent import Torrent
+from .client import Client
+from .session import Session
+from .peer import Peer
 import json
 from cgi import escape
 import signal
@@ -18,9 +18,9 @@ import sys
 import binascii
 from tornado.options import options
 from tornado.ioloop import IOLoop
-from proxytorrent import ProxyTorrent
-from tracker import Tracker
-from util import hexlify
+from .proxytorrent import ProxyTorrent
+from .tracker import Tracker
+from .util import hexlify
 
 class BaseHandler(tornado.web.RequestHandler):
     def __init__(self, *args, **kwargs):
@@ -42,7 +42,7 @@ class IndexHandler(BaseHandler):
     def get(self):
         logging.info('unhandled route')
 
-from apidefs import TorrentDef
+from .apidefs import TorrentDef
 
 class GUIHandler(BaseHandler):
     def get(self):
@@ -124,7 +124,7 @@ class StatusHandler(BaseHandler):
                 except SyntaxError:
                     exec(qs)
                     self.write('')
-            except Exception, e:
+            except Exception as e:
                 import traceback
                 self.write( traceback.format_exc() )
                 #return self.write(str(e))
@@ -222,7 +222,7 @@ class ProxyHandler(BaseHandler):
 
 import collections
 import time
-from tornado.iostream import _merge_prefix
+from .util import _merge_prefix
 
 class APIHandler(BaseHandler):
     def get(self): return self.post();
@@ -407,7 +407,7 @@ def request_logger(handler):
     if options.verbose > 1:
         logging.info('finished handler %s' % handler)
 
-from tornado.util import bytes_type, b
+#from tornado.util import bytes_type, b
 
 class WebSocketIOStreamAdapter(object):
     """ pretends to be iostream instance used by connection.py """
@@ -467,7 +467,7 @@ class WebSocketIOStreamAdapter(object):
     def writing(self):
         return False
 
-import tornado.netutil
+import tornado.tcpserver
 
 def dassert(tval, msg=None):
     if not tval:
@@ -475,7 +475,7 @@ def dassert(tval, msg=None):
         import pdb; pdb.set_trace()
         
 
-class IncomingConnectionListenProxy(tornado.netutil.TCPServer):
+class IncomingConnectionListenProxy(tornado.tcpserver.TCPServer):
     start_port = 32000
     end_port = 65000
     byport = {}

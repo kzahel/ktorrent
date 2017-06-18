@@ -7,7 +7,7 @@ import urllib
 import base64
 from tornado.options import options
 
-from util import decode_peer
+from .util import decode_peer
 
 class TrackerResponse(object):
     def __repr__(self):

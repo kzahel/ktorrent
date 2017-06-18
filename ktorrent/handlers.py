@@ -4,13 +4,13 @@ import time
 import struct
 import pdb
 import bencode
-import constants
-import torrent
+import ktorrent.constants
+import ktorrent.torrent
 from tornado.options import options
-from connection import Connection
-from peer import Peer
+from .connection import Connection
+from .peer import Peer
 import math
-from util import parse_bitmask, hexlify, decode_peer
+from .util import parse_bitmask, hexlify, decode_peer
 
 class BTMessageHandler(object):
     def __init__(self, application, request):
@@ -109,7 +109,7 @@ class BitmaskHandler(BTMessageHandler):
         self.request.connection.send_bitmask()
         self.finish()
 
-from constants import tor_meta_codes, tor_meta_codes_r, HANDSHAKE_CODE
+from .constants import tor_meta_codes, tor_meta_codes_r, HANDSHAKE_CODE
 
 class UTHandler(BTMessageHandler):
     def handle(self):

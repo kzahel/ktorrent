@@ -3,11 +3,11 @@ import bencode
 import hashlib
 import binascii
 from uuid import uuid4
-from torrent import Torrent
-from connection import Connection
-from session import Session
-from settings import Settings
-from urlparse import urlparse
+from .torrent import Torrent
+from .connection import Connection
+from .session import Session
+from .settings import Settings
+from urllib.parse import urlparse
 
 class Client(object):
     instances = []
@@ -17,12 +17,12 @@ class Client(object):
         return cls.instances[0]
 
     def do_trackers(self):
-        for hash,torrent in self.torrents.iteritems():
+        for hash,torrent in self.torrents.items():
             if torrent.tracker_on():
                 torrent.do_trackers()
 
     def peer_think(self):
-        for hash,torrent in self.torrents.iteritems():
+        for hash,torrent in self.torrents.items():
             torrent.peer_think()
 
     @classmethod
@@ -33,13 +33,13 @@ class Client(object):
 
         for client in cls.instances:
             allchanges = {}
-            for hash, torrent in client.torrents.iteritems():
+            for hash, torrent in client.torrents.items():
                 changes = torrent.update_attributes()
                 #logging.info('tor update attrs got changes %s' % changes)
                 if changes:
                     allchanges[hash] = changes
             if allchanges:
-                for id, session in client.sessions.iteritems():
+                for id, session in client.sessions.items():
                     # no -- only do this when session requests an update!
                     
                     session.process_changes({'torrent':allchanges})
@@ -117,7 +117,7 @@ class Client(object):
 
     @classmethod
     def save_settings(cls):
-        for h,t in Torrent.instances.iteritems():
+        for h,t in Torrent.instances.items():
             t.save_quick_resume()
             t.save_attributes()
         d = [{'torrents': [str(hash) for hash in c.torrents],
@@ -133,7 +133,7 @@ class Client(object):
             self.id = data['id']
             if 'torrents' in data:
                 self.torrents = dict( (t,Torrent.instantiate(t)) for t in data['torrents'] if len(t) == 20 )
-                for hash,t in self.torrents.iteritems():
+                for hash,t in self.torrents.items():
                     t.get_bitmask(force_create=False) # force a load of metadata from .torrent files
                     #t.load_attributes() # done in the init
         else:

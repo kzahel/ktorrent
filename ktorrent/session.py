@@ -21,7 +21,7 @@ def create_update_add_remove_trees(changes, add, remove, key=None):
         remove[key] = changes[0]
     else:
         logging.error('hmmmmmm')
-from util import hexlify    
+from .util import hexlify    
 
 class Session(object):
     instances = {}
@@ -96,8 +96,8 @@ class Session(object):
     def process_changes(self, changes):
         logging.info('process changes %s' % changes)
         create_update_add_remove_trees(changes, self.state_add, self.state_remove)
-        print self.state_add
-        print self.state_remove
+        print( self.state_add )
+        print( self.state_remove )
     
     def handle_add(self):
         #self.state['btapp']

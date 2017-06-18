@@ -1,6 +1,6 @@
 import os
 import logging
-from piece import Piece
+from .piece import Piece
 from tornado.options import options
 
 def intersect(i1, i2):

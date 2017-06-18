@@ -24,7 +24,7 @@ MESSAGES = [
     'UTORRENT_MSG'
 ]
 message_dict = dict( (n,v) for n,v in enumerate(MESSAGES) )
-message_dict.update( dict( (v,chr(k)) for k,v in message_dict.iteritems() ) )
+message_dict.update( dict( (v,chr(k)) for k,v in message_dict.items() ) )
 
 HANDSHAKE_CODE = 0
 UTORRENT_MSG_INFO = chr(0)
@@ -58,6 +58,6 @@ tor_meta_codes = { 0: 'request',
                    1: 'data',
                    2: 'reject' }
 
-tor_meta_codes_r = dict( (v,k) for k,v in tor_meta_codes.iteritems() )
+tor_meta_codes_r = dict( (v,k) for k,v in tor_meta_codes.items() )
 import random
 my_peer_id = ''.join([str(random.randrange(0,10)) for _ in range(12)])

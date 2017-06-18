@@ -7,21 +7,21 @@ from hashlib import sha1
 import math
 import pdb
 import struct
-import constants
+import ktorrent.constants as constants
 import time
 import binascii
 from tornado import gen
-from bitcounter import BitCounter
+from .bitcounter import BitCounter
 import bencode
 import binascii
-from settings import Settings
-from tracker import Tracker
-from constants import tor_meta_codes, tor_meta_codes_r
+from .settings import Settings
+from .tracker import Tracker
+from .constants import tor_meta_codes, tor_meta_codes_r
 
-from file import File
-from piece import Piece
+from .file import File
+from .piece import Piece
 
-from util import hexlify
+from .util import hexlify
 
 class Torrent(object):
     instances = {}
@@ -42,7 +42,7 @@ class Torrent(object):
     def peer_think(self):
         # think about our current list of peers, and if we'd rather be
         # doing something with other peers...
-        for key,tracker in self.trackers.iteritems():
+        for key,tracker in self.trackers.items():
             if tracker.can_announce():
                 tracker.announce(self.hash)
 
@@ -52,7 +52,7 @@ class Torrent(object):
                 Torrent.Client.instance().connect( peer[0], peer[1], self.hash )
 
     def get_random_peer(self):
-        for key,tracker in self.trackers.iteritems():
+        for key,tracker in self.trackers.items():
             if tracker.peerdata:
                 return random.choice(tracker.peerdata)
 
@@ -78,12 +78,12 @@ class Torrent(object):
                         pass
 
 
-    @gen.engine
+    @gen.coroutine
     def do_trackers(self, callback=None):
         assert(len(self.hash) == 20)
         # talk to trackers in attempt to get peers
-        if not self.started(): raise StopIteration
-        if not self.meta: raise StopIteration
+        if not self.started(): return
+        if not self.meta: return
 
         if 'announce-list' in self.meta:
             tier1 = self.meta['announce-list'][0]
@@ -235,7 +235,7 @@ class Torrent(object):
     def cleanup_old_requests(self, conn, t=None):
         if t is None: t = time.time()
 
-        for k,piece in self.pieces.iteritems():
+        for k,piece in self.pieces.items():
             piece.cleanup_old_requests(conn, t)
 
     def remove(self):
@@ -417,7 +417,7 @@ class Torrent(object):
         try:
             self.sid = Settings.get(['torrents',self.hash,'sid'])
         except:
-            chars = map(str,range(10)) + list('abcdef')
+            chars = list(map(str,range(10))) + list('abcdef')
             sid = ''.join( [random.choice( chars ) for _ in range(5)] )
             Settings.set(['torrents',self.hash,'sid'], sid)
             self.sid = sid
